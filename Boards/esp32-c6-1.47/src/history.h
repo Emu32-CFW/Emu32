@@ -28,16 +28,16 @@ static bool recentLoad() {
   recentCount = 0;
   recentLoadSafe = false;
   if (!sdMount()) return false;
-  File f = SD.open("/system/recents.txt", FILE_READ);
+  File f = SD_MMC.open("/system/recents.txt", FILE_READ);
   // A power loss during the temp-file rename can leave only the backup.
   // Restore it before giving up so the user does not lose saved entries.
-  if (!f && SD.exists("/system/recents.bak")) {
-    if (SD.rename("/system/recents.bak", "/system/recents.txt"))
-      f = SD.open("/system/recents.txt", FILE_READ);
-    if (!f) f = SD.open("/system/recents.bak", FILE_READ);
+  if (!f && SD_MMC.exists("/system/recents.bak")) {
+    if (SD_MMC.rename("/system/recents.bak", "/system/recents.txt"))
+      f = SD_MMC.open("/system/recents.txt", FILE_READ);
+    if (!f) f = SD_MMC.open("/system/recents.bak", FILE_READ);
   }
   if (!f) {
-    if (!SD.exists("/system/recents.txt") && !SD.exists("/system/recents.bak"))
+    if (!SD_MMC.exists("/system/recents.txt") && !SD_MMC.exists("/system/recents.bak"))
       recentLoadSafe = true;  // A genuinely new card has an empty history.
     return recentLoadSafe;
   }
@@ -86,13 +86,13 @@ static void recentSave() {
   // Removing recents.txt before rename meant a failed rename silently erased
   // the user's entire recent-games list.
   if (!sdMount()) return;
-  SD.mkdir("/system");
+  SD_MMC.mkdir("/system");
   const char *tmp = "/system/recents.tmp";
   const char *dst = "/system/recents.txt";
   const char *bak = "/system/recents.bak";
-  SD.remove(tmp);
+  SD_MMC.remove(tmp);
 
-  File f = SD.open(tmp, FILE_WRITE);
+  File f = SD_MMC.open(tmp, FILE_WRITE);
   if (!f) return;
   bool written = true;
   for (int i=0; i<recentCount; ++i) {
@@ -105,29 +105,29 @@ static void recentSave() {
   f.flush();
   f.close();
   if (!written) {
-    SD.remove(tmp);
+    SD_MMC.remove(tmp);
     return;
   }
 
   // Rotate the old file out of the way, then roll it back if installing the
-  // new file fails. SD.rename() does not reliably replace existing files.
-  const bool hadOld = SD.exists(dst);
+  // new file fails. SD_MMC.rename() does not reliably replace existing files.
+  const bool hadOld = SD_MMC.exists(dst);
   // Do not discard a recoverable backup when the main file is already
   // missing (for example after an interrupted earlier save).
   if (hadOld) {
-    SD.remove(bak);
-    if (!SD.rename(dst, bak)) {
-      SD.remove(tmp);
+    SD_MMC.remove(bak);
+    if (!SD_MMC.rename(dst, bak)) {
+      SD_MMC.remove(tmp);
       return;
     }
   }
-  if (!SD.rename(tmp, dst)) {
-    if (hadOld) SD.rename(bak, dst);
-    SD.remove(tmp);
+  if (!SD_MMC.rename(tmp, dst)) {
+    if (hadOld) SD_MMC.rename(bak, dst);
+    SD_MMC.remove(tmp);
     return;
   }
   // Only retire a stale backup after the replacement is safely installed.
-  SD.remove(bak);
+  SD_MMC.remove(bak);
 }
 static void recentRecord(const char *path) {
   // Do not store a truncated path that could point to a different ROM.

@@ -37,7 +37,7 @@ static bool recentLoad() {
     if (!f) f = SD_MMC.open("/system/recents.bak", FILE_READ);
   }
   if (!f) {
-    if (!SD.exists("/system/recents.txt") && !SD.exists("/system/recents.bak"))
+    if (!SD_MMC.exists("/system/recents.txt") && !SD_MMC.exists("/system/recents.bak"))
       recentLoadSafe = true;  // A genuinely new card has an empty history.
     return recentLoadSafe;
   }
