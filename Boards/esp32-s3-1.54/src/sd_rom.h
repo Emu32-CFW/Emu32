@@ -569,6 +569,16 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
   char tmp[208], bak[208];
   if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp) ||
       snprintf(bak, sizeof(bak), "%s.bak", path) >= (int)sizeof(bak)) { sdSaveSetError("STATE PATH TOO LONG"); return false; }
+  // Validate the complete file size before hashing or writing any payload.
+  // size_t is 32-bit on ESP32, so reject totals that cannot be represented.
+  const uint64_t payloadWide = (uint64_t)coreSize +
+                               (uint64_t)memSize +
+                               (uint64_t)ramSize;
+  if (payloadWide > (uint64_t)(SIZE_MAX - sizeof(SdStateHeader))) {
+    sdSaveSetError("STATE TOO LARGE");
+    return false;
+  }
+  const size_t expected = sizeof(SdStateHeader) + (size_t)payloadWide;
   SdStateHeader h = {{'E','M','U','S','T','A','T','E'}, 2, system, coreSize, memSize, ramSize,
                      sdStatePayloadCrc(core, coreSize, mem, memSize, ramData, ramSize)};
   SD_MMC.remove(tmp);
@@ -579,17 +589,6 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
             (!memSize || f.write((const uint8_t *)mem, memSize) == memSize) &&
             (!ramSize || f.write((const uint8_t *)ramData, ramSize) == ramSize);
   f.flush(); f.close();
-  // Check the aggregate before adding it: size_t is 32-bit on ESP32, so
-  // unchecked payload addition could wrap the expected file length.
-  const uint64_t payloadWide = (uint64_t)coreSize +
-                               (uint64_t)memSize +
-                               (uint64_t)ramSize;
-  if (payloadWide > (uint64_t)(SIZE_MAX - sizeof(h))) {
-    sdSaveSetError("STATE TOO LARGE");
-    SD_MMC.remove(tmp);
-    return false;
-  }
-  const size_t expected = sizeof(h) + (size_t)payloadWide;
   ok = ok && sdStateVerifyFile(tmp, h, expected);
   if (!ok) { sdSaveSetError("STATE WRITE/READBACK VERIFY FAILED"); sdMarkIoFault("state short write or verification"); SD_MMC.remove(tmp); return false; }
   if (SD_MMC.exists(path)) {
