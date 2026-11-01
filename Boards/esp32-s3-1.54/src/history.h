@@ -10,6 +10,20 @@ static char recentLaunchPath[ROM_PATH_LEN] = "";
 // Prevent a transient/partial read from being mistaken for an empty history
 // and then persisted over the user's existing recent-game list.
 static bool recentLoadSafe = false;
+
+// SD-card paths are case-insensitive; treat differently-cased spellings of
+// the same ROM as one history entry. Keep this ASCII-only for FAT filenames.
+static bool recentPathEquals(const char *a, const char *b) {
+  if (!a || !b) return a == b;
+  while (*a && *b) {
+    unsigned char ca = (unsigned char)*a++;
+    unsigned char cb = (unsigned char)*b++;
+    if (ca >= 'A' && ca <= 'Z') ca = (unsigned char)(ca + ('a' - 'A'));
+    if (cb >= 'A' && cb <= 'Z') cb = (unsigned char)(cb + ('a' - 'A'));
+    if (ca != cb) return false;
+  }
+  return *a == *b;
+}
 static bool recentLoad() {
   recentCount = 0;
   recentLoadSafe = false;
@@ -51,7 +65,7 @@ static bool recentLoad() {
     while (n && (line[n-1]=='\r' || line[n-1]==' ')) line[--n] = 0;
     if (!n || line[0] != '/' || n >= sizeof(recentPaths[0])) continue;
     bool duplicate = false;
-    for (int i=0; i<recentCount; ++i) if (!strcmp(recentPaths[i], line)) { duplicate=true; break; }
+    for (int i=0; i<recentCount; ++i) if (recentPathEquals(recentPaths[i], line)) { duplicate=true; break; }
     if (!duplicate && recentCount < RECENTS_MAX)
       strlcpy(recentPaths[recentCount++], line, sizeof(recentPaths[0]));
   }
@@ -120,7 +134,7 @@ static void recentRecord(const char *path) {
   if (!path || path[0] != '/' || strlen(path) >= sizeof(recentPaths[0]) || !sdMount()) return;
   if (!recentLoad()) return;
   int found=-1;
-  for (int i=0; i<recentCount; ++i) if (!strcmp(recentPaths[i], path)) { found=i; break; }
+  for (int i=0; i<recentCount; ++i) if (recentPathEquals(recentPaths[i], path)) { found=i; break; }
   if (found >= 0) for (int i=found; i>0; --i) strlcpy(recentPaths[i], recentPaths[i-1], sizeof(recentPaths[i]));
   else {
     int last = recentCount < RECENTS_MAX ? recentCount++ : RECENTS_MAX-1;
