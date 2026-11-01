@@ -30,7 +30,7 @@ static void favoriteLoad() {
     return;
   }
   const size_t expectedBytes = f.size();
-  while (f.available() && favoriteCount < FAVORITES_MAX) {
+  while (f.available()) {
     char line[FAVORITE_PATH_LEN];
     size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
     line[n] = 0;
@@ -54,7 +54,8 @@ static void favoriteLoad() {
     for (int i=0; i<favoriteCount; ++i) {
       if (!strcmp(favoritePaths[i], line)) { duplicate = true; break; }
     }
-    if (!duplicate) strlcpy(favoritePaths[favoriteCount++], line, sizeof(favoritePaths[0]));
+    if (!duplicate && favoriteCount < FAVORITES_MAX)
+      strlcpy(favoritePaths[favoriteCount++], line, sizeof(favoritePaths[0]));
   }
   const size_t consumedBytes = f.position();
   f.close();
