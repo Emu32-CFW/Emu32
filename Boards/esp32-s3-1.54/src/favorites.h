@@ -36,7 +36,10 @@ static void favoriteLoad() {
     line[n] = 0;
     // readBytesUntil() can return a full buffer without consuming the rest
     // of an overlong line. Drain that line so its tail isn't parsed as a path.
-    if (n == sizeof(line) - 1 && f.available() && f.peek() != '\n' && f.peek() != '\r') {
+    if (n == sizeof(line) - 1 && f.available() && f.peek() != '\n') {
+      // A CRLF terminator starts with '\r'. Treat it like any other
+      // remaining line data and drain through '\n'; otherwise an
+      // overlong entry ending in CRLF could be accepted in truncated form.
       while (f.available()) { int c = f.read(); if (c < 0 || c == '\n') break; }
       continue;
     }
