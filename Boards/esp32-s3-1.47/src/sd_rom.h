@@ -111,8 +111,14 @@ static bool sdAtomicSaveWrite(const char *path, const uint8_t *data, size_t len)
     sdSaveSetError("SAVE PATH TOO LONG"); return false;
   }
 
-  // Arduino FILE_WRITE appends, so always start with an empty temporary file.
-  SD_MMC.remove(tmp);
+  // Arduino FILE_WRITE appends. Do not ignore a failed cleanup: opening a
+  // stale temp file would append the new save to old bytes and can make the
+  // transaction fail verification (or leave confusing recovery debris).
+  if (SD_MMC.exists(tmp) && !SD_MMC.remove(tmp)) {
+    sdSaveSetError("CANNOT CLEAR TEMP SAVE");
+    sdMarkIoFault("save temp cleanup");
+    return false;
+  }
   File f = SD_MMC.open(tmp, FILE_WRITE);
   if (!f) {
     sdSaveSetError("SD WRITE FAILED / CARD FULL");
