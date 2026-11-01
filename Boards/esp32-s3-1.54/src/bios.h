@@ -7,7 +7,7 @@
 static bool biosReadFile(const char *path, uint8_t *dst, size_t expectedSize) {
   if (!path || !dst || expectedSize == 0) return false;
 
-  File f = SD_MMC.open(path, FILE_READ);
+  File f = EMU32_SD_FS.open(path, FILE_READ);
   if (!f) return false;
   if (f.isDirectory()) { f.close(); return false; }
 
@@ -52,7 +52,7 @@ static bool biosLoadFirst(const char *systemDir, const char *const *names,
       Serial.printf("BIOS: candidate path too long for %s\n", names[i]);
       continue;
     }
-    if (SD_MMC.exists(path)) foundCandidate = true;
+    if (EMU32_SD_FS.exists(path)) foundCandidate = true;
     if (biosReadFile(path, dst, expectedSize)) {
       if (loadedPath && loadedPathSize) strlcpy(loadedPath, path, loadedPathSize);
       Serial.printf("BIOS: loaded %s (%u bytes)\n", path, (unsigned)expectedSize);
@@ -108,7 +108,7 @@ static bool biosPreLaunchCheck(uint8_t system) {
   for (size_t i = 0; i < nameCount; ++i) {
     int pathLen = snprintf(path, sizeof(path), "/bios/%s/%s", dir, names[i]);
     if (pathLen < 0 || pathLen >= (int)sizeof(path)) continue;
-    if (!SD_MMC.exists(path)) continue;
+    if (!EMU32_SD_FS.exists(path)) continue;
     candidateFound = true;
 
     if (biosReadFile(path, probe, expectedSize)) {

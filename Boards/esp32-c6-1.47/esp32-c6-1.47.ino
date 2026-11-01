@@ -116,6 +116,7 @@ static bool    inGame = false;
 #include "src/controller.h"
 
 #include "src/sd_rom.h"
+#define EMU32_SD_FS SD       // shared SD-card filesystem for BIOS and box art
 #define SHOT_FS SD            // screenshot.h writes PNGs through this filesystem
 #include "src/screenshot.h"  // must come after sd_rom.h / controller.h and before the cores
 #include "src/bios.h"

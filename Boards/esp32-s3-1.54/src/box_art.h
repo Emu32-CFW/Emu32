@@ -42,7 +42,7 @@ static void *boxArtOpenFile(const char *filename, int32_t *fileSize) {
   if (!filename || !fileSize) return nullptr;
   File *f = new File;
   if (!f) return nullptr;
-  *f = SD_MMC.open(filename, FILE_READ);
+  *f = EMU32_SD_FS.open(filename, FILE_READ);
   if (!*f) { delete f; return nullptr; }
   const uint32_t n = f->size();
   if (!n || n > 8U * 1024U * 1024U) { f->close(); delete f; return nullptr; }
@@ -154,12 +154,12 @@ static bool boxArtResolve(const char *name, char *out, size_t cap) {
   for (size_t i = 0; i < sizeof(exts) / sizeof(exts[0]); ++i) {
     int written = snprintf(out, cap, "/imgs/%s/%s%s", boxArtFolder[curSys], name, exts[i]);
     if (written < 0 || (size_t)written >= cap) return false;
-    if (SD_MMC.exists(out)) return true;
+    if (EMU32_SD_FS.exists(out)) return true;
   }
   char dirPath[40];
   int dirLen = snprintf(dirPath, sizeof(dirPath), "/imgs/%s", boxArtFolder[curSys]);
   if (dirLen < 0 || (size_t)dirLen >= sizeof(dirPath)) return false;
-  File dir = SD_MMC.open(dirPath);
+  File dir = EMU32_SD_FS.open(dirPath);
   if (!dir || !dir.isDirectory()) { if (dir) dir.close(); return false; }
   const size_t nl = strlen(name);
   bool found = false;
