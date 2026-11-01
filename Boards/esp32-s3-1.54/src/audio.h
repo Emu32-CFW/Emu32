@@ -143,10 +143,18 @@ namespace EmuAudio {
         block[i * 2] = (int16_t)quiet;
         block[i * 2 + 1] = (int16_t)quiet;
       }
-      const size_t bytes = i2s.write((uint8_t *)block, n * 2 * sizeof(int16_t));
-      const size_t frames = bytes / (2 * sizeof(int16_t));
-      done += frames;
-      if (frames == 0) break;
+      // I2S write() may accept fewer bytes than requested. Keep sending
+      // from the exact byte offset until this block is complete; advancing
+      // by whole frames after a partial write would silently drop its tail.
+      const size_t blockBytes = n * 2 * sizeof(int16_t);
+      size_t sentBytes = 0;
+      while (sentBytes < blockBytes) {
+        const size_t written = i2s.write((uint8_t *)block + sentBytes, blockBytes - sentBytes);
+        if (written == 0) break;
+        sentBytes += min(written, blockBytes - sentBytes);
+      }
+      if (sentBytes != blockBytes) break;
+      done += n;
     }
     return done;
   }
