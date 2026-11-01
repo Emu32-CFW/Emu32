@@ -94,7 +94,7 @@ static void sdSaveSetError(const char *reason) {
 }
 
 // Battery-save safety helpers. Write a complete replacement beside the save,
-// verify its length, then rotate the old save to .bak before promoting .tmp.
+// verify its length and contents, then rotate the old save to .bak before promoting .tmp.
 // Keeping the previous generation means a reset or card-write failure cannot
 // destroy the last known-good save. FILE_WRITE appends on Arduino SD, so the
 // temporary file is explicitly removed before every write.
@@ -139,10 +139,25 @@ static bool sdAtomicSaveWrite(const char *path, const uint8_t *data, size_t len)
 
   File check = SD_MMC.open(tmp, FILE_READ);
   bool verified = check && check.size() == len;
+  // A same-length write can still be corrupted by an unreliable card. Compare
+  // the complete readback against the source buffer before rotating the known-good save.
+  uint8_t verifyBuf[128];
+  size_t verifyOffset = 0;
+  while (verified && verifyOffset < len) {
+    const size_t want = (len - verifyOffset < sizeof(verifyBuf))
+                          ? len - verifyOffset : sizeof(verifyBuf);
+    const size_t got = check.read(verifyBuf, want);
+    if (!got || memcmp(verifyBuf, data + verifyOffset, got) != 0) {
+      verified = false;
+      break;
+    }
+    verifyOffset += got;
+  }
+  verified = verified && verifyOffset == len;
   if (check) check.close();
   if (!verified) {
     sdSaveSetError("SAVE VERIFY FAILED");
-    Serial.printf("SAVE: verify failed: %s\n", tmp);
+    Serial.printf("SAVE: readback verification failed: %s\n", tmp);
     sdMarkIoFault("save verification read");
     SD_MMC.remove(tmp);
     return false;
