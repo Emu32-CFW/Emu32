@@ -48,7 +48,8 @@ static void coreShutdown(uint8_t system) {
     case SYS_GBC:   gbcShutdown(); break;
     case SYS_A2600: a26Shutdown(); break;
     case SYS_GENESIS: genShutdown(); break;
-    case SYS_NES:   default: nesShutdown(); break;
+    case SYS_NES:   nesShutdown(); break;
+    default:        break; // Ignore invalid system IDs; never shut down the NES by accident.
   }
 }
 
