@@ -56,7 +56,7 @@ static void favoriteLoad() {
     if (!n || line[0] != '/' || n >= sizeof(favoritePaths[0])) continue;
     bool duplicate = false;
     for (int i=0; i<favoriteCount; ++i) {
-      if (!strcmp(favoritePaths[i], line)) { duplicate = true; break; }
+      if (!strcasecmp(favoritePaths[i], line)) { duplicate = true; break; }
     }
     if (!duplicate && favoriteCount < FAVORITES_MAX)
       strlcpy(favoritePaths[favoriteCount++], line, sizeof(favoritePaths[0]));
@@ -108,7 +108,7 @@ static bool favoriteSave() {
 
 static int favoriteIndex(const char *path) {
   if (!path) return -1;
-  for (int i=0; i<favoriteCount; ++i) if (!strcmp(favoritePaths[i], path)) return i;
+  for (int i=0; i<favoriteCount; ++i) if (!strcasecmp(favoritePaths[i], path)) return i;
   return -1;
 }
 
@@ -147,7 +147,7 @@ static int favoriteSystemForPath(const char *path) {
   if (!path) return -1;
   for (int i=0; i<SYS_COUNT; ++i) {
     const size_t n = strlen(sysDir[i]);
-    if (strncmp(path, sysDir[i], n) != 0 || path[n] != '/') continue;
+    if (strncasecmp(path, sysDir[i], n) != 0 || path[n] != '/') continue;
     // ROM lists contain files directly in each system folder. Reject edited
     // or stale entries that try to escape that folder or point into a subdir.
     const char *name = path + n + 1;
