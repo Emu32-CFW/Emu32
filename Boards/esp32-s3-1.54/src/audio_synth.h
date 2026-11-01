@@ -99,7 +99,9 @@ namespace EmuSound {
     // Six low-cost sine-like FM voices from YM2612 key-on/frequency registers.
     for (int ch=0; ch<6; ++ch) {
       int bank=ch/3, c=ch%3; uint8_t key=gen::ymReg[0][0x28];
-      bool on = (key & (1 << (c+1))) && ((key & 4) ? bank==1 : bank==0);
+      // YM2612 encodes channel 0/1/2 in bits 0-1 (channel 3 uses value 2)
+      // and selects register bank 1 with bit 2.
+      bool on = ((key & 0x03) == c) && (((key & 0x04) != 0) == (bank == 1));
       int fnum=gen::ymReg[bank][0xA0+c] | ((gen::ymReg[bank][0xA4+c]&7)<<8);
       int block=(gen::ymReg[bank][0xA4+c]>>3)&7;
       if (on && fnum) { float hz=(fnum * 0.047f) * (1 << block); ymPhase[ch] += (uint32_t)((double)hz*4294967296.0/EMU32_AUDIO_SAMPLE_RATE); int32_t tri=triangle(ymPhase[ch], hz, 180); out += tri; }
