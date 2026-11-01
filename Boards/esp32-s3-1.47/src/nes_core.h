@@ -246,7 +246,13 @@ static uint8_t ppuReadReg(uint8_t r) {
     case 4: return oam[oamAddr];
     case 7: {
       uint16_t a = vAddr & 0x3FFF; uint8_t r2;
-      if (a >= 0x3F00) { r2 = ppuRd(a); readBuf = ntBase[(a >> 10) & 3][a & 0x3FF]; }
+      if (a >= 0x3F00) {
+        r2 = ppuRd(a);
+        // Palette reads bypass the delayed read for the returned byte, but
+        // the PPU still refills its internal buffer from the mirrored
+        // nametable address ($2Fxx), not from the palette address ($3Fxx).
+        readBuf = ppuRd(a - 0x1000);
+      }
       else { r2 = readBuf; readBuf = ppuRd(a); }
       vAddr = (vAddr + ((ppuCtrl & 4) ? 32 : 1)) & 0x7FFF;
       return r2;
