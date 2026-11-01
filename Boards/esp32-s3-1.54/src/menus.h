@@ -479,8 +479,28 @@ static bool saveManagerCopyVerified(const char *src, const char *dst) {
     copied += wrote;
   }
   in.close(); out.flush(); out.close();
+  // A matching file length is not enough: same-size corruption during an SD
+  // write would otherwise be promoted as a successful save. Compare every
+  // copied byte against the source before replacing the destination.
+  File sourceCheck = SD_MMC.open(src, FILE_READ);
   File verify = SD_MMC.open(tmp, FILE_READ);
-  bool ok = copied == expected && verify && verify.size() == expected;
+  bool ok = copied == expected && sourceCheck && verify &&
+            sourceCheck.size() == expected && verify.size() == expected;
+  uint8_t sourceBuf[512], verifyBuf[512];
+  size_t checked = 0;
+  while (ok && checked < expected) {
+    size_t want = expected - checked;
+    if (want > sizeof(sourceBuf)) want = sizeof(sourceBuf);
+    const size_t sourceRead = sourceCheck.read(sourceBuf, want);
+    const size_t verifyRead = verify.read(verifyBuf, want);
+    if (sourceRead != want || verifyRead != want ||
+        memcmp(sourceBuf, verifyBuf, want) != 0) {
+      ok = false;
+      break;
+    }
+    checked += want;
+  }
+  if (sourceCheck) sourceCheck.close();
   if (verify) verify.close();
   if (!ok) {
     if (writeFailed || copied < expected) {
