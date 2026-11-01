@@ -133,7 +133,18 @@ static int recentSystemForPath(const char *path) {
   if (!path) return -1;
   for (int i=0; i<SYS_COUNT; ++i) {
     const size_t n = strlen(sysDir[i]);
-    if (strncmp(path, sysDir[i], n) != 0 || path[n] != '/') continue;
+    // FAT paths are case-insensitive, so a path saved with different letter
+    // casing must still resolve to its system folder when opened from Recents.
+    size_t j = 0;
+    while (j < n) {
+      unsigned char a = (unsigned char)path[j];
+      unsigned char b = (unsigned char)sysDir[i][j];
+      if (a >= 'A' && a <= 'Z') a = (unsigned char)(a + ('a' - 'A'));
+      if (b >= 'A' && b <= 'Z') b = (unsigned char)(b + ('a' - 'A'));
+      if (a != b) break;
+      ++j;
+    }
+    if (j != n || path[n] != '/') continue;
     // Recent entries are ROMs from the system folder root, never directories.
     // Reject malformed paths so a stale entry cannot select the wrong core.
     const char *name = path + n + 1;
