@@ -522,13 +522,17 @@ static bool sdStateVerifyFile(const char *path, const SdStateHeader &expected, s
             actual.coreSize == expected.coreSize && actual.memSize == expected.memSize &&
             actual.ramSize == expected.ramSize && actual.crc32 == expected.crc32;
   uint8_t chunk[128];
-  uint32_t remaining = expected.coreSize + expected.memSize + expected.ramSize;
+  // Keep the combined payload length wide: adding three uint32_t lengths
+  // into a uint32_t can wrap and let a truncated payload pass verification.
+  uint64_t remaining = (uint64_t)expected.coreSize +
+                       (uint64_t)expected.memSize +
+                       (uint64_t)expected.ramSize;
   uint32_t crc = 0xFFFFFFFFUL;
   while (ok && remaining) {
-    size_t want = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+    size_t want = remaining < sizeof(chunk) ? (size_t)remaining : sizeof(chunk);
     if (!sdStateReadExact(f, chunk, want)) { ok = false; break; }
     crc = sdStateCrc32Update(crc, chunk, want);
-    remaining -= (uint32_t)want;
+    remaining -= want;
   }
   f.close();
   crc ^= 0xFFFFFFFFUL;
@@ -569,7 +573,17 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
             (!memSize || f.write((const uint8_t *)mem, memSize) == memSize) &&
             (!ramSize || f.write((const uint8_t *)ramData, ramSize) == ramSize);
   f.flush(); f.close();
-  const size_t expected = sizeof(h) + coreSize + memSize + ramSize;
+  // Check the aggregate before adding it: size_t is 32-bit on ESP32, so
+  // unchecked payload addition could wrap the expected file length.
+  const uint64_t payloadWide = (uint64_t)coreSize +
+                               (uint64_t)memSize +
+                               (uint64_t)ramSize;
+  if (payloadWide > (uint64_t)(SIZE_MAX - sizeof(h))) {
+    sdSaveSetError("STATE TOO LARGE");
+    SD_MMC.remove(tmp);
+    return false;
+  }
+  const size_t expected = sizeof(h) + (size_t)payloadWide;
   ok = ok && sdStateVerifyFile(tmp, h, expected);
   if (!ok) { sdSaveSetError("STATE WRITE/READBACK VERIFY FAILED"); sdMarkIoFault("state short write or verification"); SD_MMC.remove(tmp); return false; }
   if (SD_MMC.exists(path)) {
