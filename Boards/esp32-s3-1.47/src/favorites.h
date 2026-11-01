@@ -25,7 +25,7 @@ static void favoriteLoad() {
   if (!f) {
     // An absent file means a new/empty favorites list; an existing but
     // unopenable file is an I/O failure and must block writes.
-    if (!SD.exists("/system/favorites.txt") && !SD.exists("/system/favorites.bak"))
+    if (!SD_MMC.exists("/system/favorites.txt") && !SD_MMC.exists("/system/favorites.bak"))
       favoriteLoadSafe = true;
     return;
   }
