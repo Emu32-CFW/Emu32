@@ -175,6 +175,13 @@ static int favoritesMenu() {
     prevBleButtons = buttons;
     const uint32_t now = millis();
     if (pressed & 0x02) return -1;
+    // Keep the selection valid if the list size changes while the menu is
+    // active (for example after a future refresh/reload path is added).
+    if (favoriteCount > 0 && sel >= favoriteCount) {
+      sel = favoriteCount - 1;
+      if (top > sel) top = sel;
+      dirty = true;
+    }
     if (yPressed && favoriteCount > 0) {
       char removed[FAVORITE_PATH_LEN];
       strlcpy(removed, favoritePaths[sel], sizeof(removed));
