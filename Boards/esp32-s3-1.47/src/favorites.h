@@ -30,6 +30,7 @@ static void favoriteLoad() {
     return;
   }
   const size_t expectedBytes = f.size();
+  bool overflowed = false;
   while (f.available()) {
     char line[FAVORITE_PATH_LEN];
     size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
@@ -58,8 +59,12 @@ static void favoriteLoad() {
     for (int i=0; i<favoriteCount; ++i) {
       if (!strcasecmp(favoritePaths[i], line)) { duplicate = true; break; }
     }
-    if (!duplicate && favoriteCount < FAVORITES_MAX)
-      strlcpy(favoritePaths[favoriteCount++], line, sizeof(favoritePaths[0]));
+    if (!duplicate) {
+      if (favoriteCount < FAVORITES_MAX)
+        strlcpy(favoritePaths[favoriteCount++], line, sizeof(favoritePaths[0]));
+      else
+        overflowed = true;
+    }
   }
   const size_t consumedBytes = f.position();
   f.close();
@@ -67,6 +72,12 @@ static void favoriteLoad() {
     favoriteCount = 0;
     Serial.printf("FAVORITES: incomplete read (%u/%u bytes); refusing to overwrite list\n",
                   (unsigned)consumedBytes, (unsigned)expectedBytes);
+    return;
+  }
+  if (overflowed) {
+    // Keep the visible entries, but block edits: saving a capped list would
+    // silently delete valid favorites beyond FAVORITES_MAX from the SD card.
+    Serial.printf("FAVORITES: more than %d entries; refusing to overwrite list\n", FAVORITES_MAX);
     return;
   }
   favoriteLoadSafe = true;
