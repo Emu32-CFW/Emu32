@@ -426,7 +426,7 @@ static bool sdBuildLegacyManagedSavePath(const char *romPath, const char *system
   if (!romPath || !systemDir || !out || !outSize) return false;
   char expected[48];
   int rootLen = snprintf(expected, sizeof(expected), "/roms/%s/", systemDir);
-  if (rootLen <= 0 || (size_t)rootLen >= sizeof(expected) || strncmp(romPath, expected, (size_t)rootLen) != 0) return false;
+  if (rootLen <= 0 || (size_t)rootLen >= sizeof(expected) || strncasecmp(romPath, expected, (size_t)rootLen) != 0) return false;
   const char *base = romPath + rootLen;
   if (!base[0] || strchr(base, '/')) return false;
   size_t n = strlen(base);
