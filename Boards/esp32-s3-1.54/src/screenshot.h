@@ -118,6 +118,8 @@ static bool shotBegin() {
 
 // ROM file name without folder or extension, with anything unsafe for a file name replaced by '_'.
 static void shotBaseName(char *out, size_t n) {
+  // A zero-sized destination has no writable terminator; avoid n - 1 underflow.
+  if (!out || n == 0) return;
   const char *s = strrchr(currentRomPath, '/');
   s = s ? s + 1 : currentRomPath;
   const char *dot = strrchr(s, '.');
