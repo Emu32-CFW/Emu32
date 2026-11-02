@@ -700,7 +700,22 @@ static void fileExplorerScan() {
     ++fileExplorerCount;
   }
   File dir = EMU32_SETTINGS_FS.open(fileExplorerPath);
-  if (!dir || !dir.isDirectory()) { if (dir) dir.close(); return; }
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    // Do not present an SD disconnect or failed directory open as an empty
+    // folder. Probe the root to distinguish a lost card from a bad path.
+    File root = EMU32_SETTINGS_FS.open("/");
+    const bool rootOk = root && root.isDirectory();
+    if (root) root.close();
+    if (!rootOk) {
+      sdMarkIoFault("file explorer directory scan");
+      strlcpy(fileExplorerStatus, "SD CARD LOST - REINSERT", sizeof(fileExplorerStatus));
+    } else {
+      strlcpy(fileExplorerStatus, "CANNOT OPEN FOLDER", sizeof(fileExplorerStatus));
+    }
+    return;
+  }
+  fileExplorerStatus[0] = '\0';
   File entry = dir.openNextFile();
   while (entry) {
     const char *raw = entry.name();
