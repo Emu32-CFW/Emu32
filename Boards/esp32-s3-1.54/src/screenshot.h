@@ -25,7 +25,7 @@
 #include <esp_heap_caps.h>
 
 #define SHOT_DIR        "/screenshots"
-#define SHOT_W          172                // widest picture any core draws (GAME_W)
+#define SHOT_W          200                // widest picture any core draws (GAME_W)
 #define SHOT_TIMEOUT    30                 // give up if no complete frame arrives within this many loop passes
 #define SHOT_MSG_MS     1500               // how long the on-screen label stays up
 
