@@ -926,11 +926,14 @@ static bool install(uint32_t sz) {
       uint8_t win[1026]; uint32_t wn = 0;
       for (uint32_t i = 0; i < tailN; i++) win[wn++] = tail[i];
       memcpy(win + wn, chunk, 1024); wn += 1024;
-      for (uint32_t i = 0; i + 2 < wn; i++) {
-        // Tigervision 3F switches the lower 2 KB bank with STA $3F.
+      for (uint32_t i = 0; i + 1 < wn; i++) {
+        // Tigervision 3F is a 2-byte pattern; include the final pair in each
+        // scan window rather than requiring a third byte to follow it.
         if (win[i] == 0x85 && win[i + 1] == 0x3F) n3f++;
-        // Parker Bros E0 hotspots are $1FE0-$1FF7 (little-endian operand, high byte $1F).
-        if ((win[i] == 0xAD || win[i] == 0x8D || win[i] == 0x2C || win[i] == 0x0C) &&
+        // Parker Bros E0 hotspots are 3-byte instructions, so check that the
+        // third byte is present before reading it.
+        if (i + 2 < wn &&
+            (win[i] == 0xAD || win[i] == 0x8D || win[i] == 0x2C || win[i] == 0x0C) &&
             win[i + 1] >= 0xE0 && win[i + 1] <= 0xF7 && win[i + 2] == 0x1F) nE0++;
       }
       tail[0] = chunk[1022]; tail[1] = chunk[1023]; tailN = 2;
