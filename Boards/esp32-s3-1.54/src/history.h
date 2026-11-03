@@ -145,8 +145,12 @@ static void recentRecord(const char *path) {
 }
 static int recentSystemForPath(const char *path) {
   if (!path) return -1;
+  const size_t pathLen = strlen(path);
   for (int i=0; i<SYS_COUNT; ++i) {
     const size_t n = strlen(sysDir[i]);
+    // Check the length before indexing: malformed or stale short paths must
+    // not make the case-insensitive prefix comparison read past the NUL.
+    if (pathLen <= n) continue;
     // FAT paths are case-insensitive, so a path saved with different letter
     // casing must still resolve to its system folder when opened from Recents.
     size_t j = 0;
