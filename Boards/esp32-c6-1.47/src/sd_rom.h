@@ -231,6 +231,10 @@ static bool sdAtomicSaveWrite(const char *path, const uint8_t *data, size_t len)
 // Load a save only when its complete length matches the cartridge RAM size.
 // If the primary save is missing/corrupt, recover from the last known-good .bak.
 static bool sdAtomicSaveLoad(const char *path, uint8_t *data, size_t len) {
+  // A new load attempt must not inherit an error from an earlier save/load.
+  // Missing save files are normal on first launch, so stale diagnostics would
+  // otherwise make a successful fresh-game startup appear to have failed.
+  sdSaveLastError[0] = '\\0';
   if (!path || !path[0] || !data || !len) return false;
   if (!sdMount()) { sdSaveSetError("SD CARD UNAVAILABLE"); return false; }
   char bak[ROM_PATH_LEN + 16], prev[ROM_PATH_LEN + 16];
