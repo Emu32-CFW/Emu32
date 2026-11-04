@@ -43,6 +43,7 @@ static bool recentLoad() {
   }
   const size_t expectedBytes = f.size();
   bool malformed = false;
+  bool overflowed = false;
   // Consume the entire file even after the in-memory list reaches capacity.
   // Otherwise valid extra/duplicate lines leave the file position short of EOF
   // and are misclassified as an SD read failure.
@@ -71,8 +72,12 @@ static bool recentLoad() {
     if (!n || line[0] != '/' || n >= sizeof(recentPaths[0])) continue;
     bool duplicate = false;
     for (int i=0; i<recentCount; ++i) if (recentPathEquals(recentPaths[i], line)) { duplicate=true; break; }
-    if (!duplicate && recentCount < RECENTS_MAX)
-      strlcpy(recentPaths[recentCount++], line, sizeof(recentPaths[0]));
+    if (!duplicate) {
+      if (recentCount < RECENTS_MAX)
+        strlcpy(recentPaths[recentCount++], line, sizeof(recentPaths[0]));
+      else
+        overflowed = true;
+    }
   }
   const size_t consumedBytes = f.position();
   f.close();
@@ -86,6 +91,12 @@ static bool recentLoad() {
     // Keep readable entries available for display, but block recentSave():
     // rewriting this partial view would permanently discard damaged entries.
     Serial.println("RECENTS: malformed path data; refusing to overwrite history");
+    return false;
+  }
+  if (overflowed) {
+    // Keep the newest visible entries, but block edits: saving a capped list
+    // would silently discard valid history entries beyond RECENTS_MAX.
+    Serial.printf("RECENTS: more than %d entries; refusing to overwrite history\\n", RECENTS_MAX);
     return false;
   }
   recentLoadSafe = true;
