@@ -42,6 +42,7 @@ static bool recentLoad() {
     return recentLoadSafe;
   }
   const size_t expectedBytes = f.size();
+  bool malformed = false;
   // Consume the entire file even after the in-memory list reaches capacity.
   // Otherwise valid extra/duplicate lines leave the file position short of EOF
   // and are misclassified as an SD read failure.
@@ -49,11 +50,12 @@ static bool recentLoad() {
     char line[ROM_PATH_LEN]; size_t n = f.readBytesUntil('\n', line, sizeof(line)-1); line[n] = 0;
     // Reject embedded NUL bytes: otherwise a corrupted line such as
     // "/roms/nes/game.nes\\0junk" is silently accepted as a different ROM path.
-    if (memchr(line, '\0', n) != nullptr) continue;
+    if (memchr(line, '\0', n) != nullptr) { malformed = true; continue; }
     // readBytesUntil() may stop at the buffer limit without consuming the
     // rest of an oversized line. Drain it so a tail fragment cannot become
     // a separate, misleading recent-game path.
     if (n == sizeof(line)-1 && f.available() && f.peek() != '\n' && f.peek() != '\r') {
+      malformed = true;
       while (f.available()) { int c = f.read(); if (c < 0 || c == '\n') break; }
       continue;
     }
@@ -78,6 +80,12 @@ static bool recentLoad() {
     recentCount = 0;
     Serial.printf("RECENTS: incomplete read (%u/%u bytes); refusing to overwrite history\n",
                   (unsigned)consumedBytes, (unsigned)expectedBytes);
+    return false;
+  }
+  if (malformed) {
+    // Keep readable entries available for display, but block recentSave():
+    // rewriting this partial view would permanently discard damaged entries.
+    Serial.println("RECENTS: malformed path data; refusing to overwrite history");
     return false;
   }
   recentLoadSafe = true;
