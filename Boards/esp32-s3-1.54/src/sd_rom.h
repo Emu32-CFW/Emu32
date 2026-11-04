@@ -242,7 +242,7 @@ static bool sdAtomicSaveLoad(const char *path, uint8_t *data, size_t len) {
   // A new load attempt must not inherit an error from an earlier save/load.
   // Missing save files are normal on first launch, so stale diagnostics would
   // otherwise make a successful fresh-game startup appear to have failed.
-  sdSaveLastError[0] = '\\0';
+  sdSaveLastError[0] = '\0';
   if (!path || !path[0] || !data || !len) return false;
   if (!sdMount()) { sdSaveSetError("SD CARD UNAVAILABLE"); return false; }
   char bak[ROM_PATH_LEN + 16], prev[ROM_PATH_LEN + 16];
