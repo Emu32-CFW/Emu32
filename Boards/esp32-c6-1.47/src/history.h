@@ -125,19 +125,24 @@ static void recentSave() {
   const bool hadOld = SD.exists(dst);
   // Do not discard a recoverable backup when the main file is already
   // missing (for example after an interrupted earlier save).
-  if (hadOld) {
-    SD.remove(bak);
-    if (!SD.rename(dst, bak)) {
-      SD.remove(tmp);
-      return;
-    }
-  }
-  if (!SD.rename(tmp, dst)) {
-    if (hadOld) SD.rename(bak, dst);
+  const char *bakPrev = "/system/recents.bak.prev";
+  const bool hadBackup = SD.exists(bak);
+  // Preserve the last recovery copy until the current primary is moved aside.
+  SD.remove(bakPrev);
+  if (hadBackup && !SD.rename(bak, bakPrev)) { SD.remove(tmp); return; }
+  if (hadOld && !SD.rename(dst, bak)) {
+    if (hadBackup) SD.rename(bakPrev, bak);
     SD.remove(tmp);
     return;
   }
-  // Only retire a stale backup after the replacement is safely installed.
+  if (!SD.rename(tmp, dst)) {
+    if (hadOld) SD.rename(bak, dst);
+    if (hadBackup) SD.rename(bakPrev, bak);
+    SD.remove(tmp);
+    return;
+  }
+  // Only retire recovery copies after the replacement is safely installed.
+  SD.remove(bakPrev);
   SD.remove(bak);
 }
 static void recentRecord(const char *path) {

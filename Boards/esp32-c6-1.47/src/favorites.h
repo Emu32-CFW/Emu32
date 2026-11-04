@@ -114,16 +114,24 @@ static bool favoriteSave() {
   const bool hadOld = SD.exists(dst);
   // Preserve an existing backup if the primary file is missing. It may be
   // the only recoverable copy left by a previous interrupted save.
-  if (hadOld) {
-    SD.remove(bak);
-    if (!SD.rename(dst, bak)) { SD.remove(tmp); return false; }
-  }
-  if (!SD.rename(tmp, dst)) {
-    if (hadOld) SD.rename(bak, dst);
+  const char *bakPrev = "/system/favorites.bak.prev";
+  const bool hadBackup = SD.exists(bak);
+  // Keep the last recovery copy until the current primary is safely moved.
+  SD.remove(bakPrev);
+  if (hadBackup && !SD.rename(bak, bakPrev)) { SD.remove(tmp); return false; }
+  if (hadOld && !SD.rename(dst, bak)) {
+    if (hadBackup) SD.rename(bakPrev, bak);
     SD.remove(tmp);
     return false;
   }
-  // The new primary is installed; the older backup can now be retired.
+  if (!SD.rename(tmp, dst)) {
+    if (hadOld) SD.rename(bak, dst);
+    if (hadBackup) SD.rename(bakPrev, bak);
+    SD.remove(tmp);
+    return false;
+  }
+  // New primary is installed; only now retire the previous recovery copy.
+  SD.remove(bakPrev);
   SD.remove(bak);
   return true;
 }
