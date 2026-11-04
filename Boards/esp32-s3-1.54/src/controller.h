@@ -513,11 +513,21 @@ static void readPad() {
   if ((s & 0xC0) == 0xC0) s &= ~0xC0;
   padState = s;
 
-  // BOOT button: only job is to start pairing a Bluetooth controller
-  static bool bootWas = false;
-  bool bootNow = (digitalRead(PAIR_PIN) == LOW);
-  if (bootNow && !bootWas) blePairStart();
-  bootWas = bootNow;
+  // BOOT button: only job is to start pairing a Bluetooth controller.
+  // Require a stable level before accepting the edge so contact bounce cannot
+  // start pairing more than once for a single physical press.
+  static bool bootStable = false;
+  static bool bootRawPrev = false;
+  static uint32_t bootRawChangedAt = 0;
+  const bool bootRaw = (digitalRead(PAIR_PIN) == LOW);
+  const uint32_t bootNowMs = millis();
+  if (bootRaw != bootRawPrev) {
+    bootRawPrev = bootRaw;
+    bootRawChangedAt = bootNowMs;
+  } else if (bootStable != bootRaw && (uint32_t)(bootNowMs - bootRawChangedAt) >= 35) {
+    bootStable = bootRaw;
+    if (bootStable) blePairStart();
+  }
 }
 
 // SELECT+RB: rotate the whole display 90 degrees clockwise (4 orientations). Call once per
