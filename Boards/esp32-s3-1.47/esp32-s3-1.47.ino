@@ -313,7 +313,10 @@ static void settingsLoad() {
       lineLen = 0;
       lineOverflow = false;
     } else if (!lineOverflow) {
-      if (lineLen + 1 < sizeof(line)) line[lineLen++] = (char)ch;
+      // Settings are parsed as C strings. Reject a line containing an embedded
+      // NUL rather than accepting only the prefix before the hidden byte.
+      if (ch == 0) { lineOverflow = true; lineLen = 0; }
+      else if (lineLen + 1 < sizeof(line)) line[lineLen++] = (char)ch;
       else { lineOverflow = true; lineLen = 0; }
     }
   }
