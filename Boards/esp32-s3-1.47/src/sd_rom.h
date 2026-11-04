@@ -600,7 +600,13 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
   const size_t expected = sizeof(SdStateHeader) + (size_t)payloadWide;
   SdStateHeader h = {{'E','M','U','S','T','A','T','E'}, 2, system, coreSize, memSize, ramSize,
                      sdStatePayloadCrc(core, coreSize, mem, memSize, ramData, ramSize)};
-  SD_MMC.remove(tmp);
+  // A stale temporary file must never be appended to. Arduino FILE_WRITE
+  // opens in append mode, so require successful cleanup before starting a state save.
+  if (SD_MMC.exists(tmp) && !SD_MMC.remove(tmp)) {
+    sdSaveSetError("CANNOT CLEAR TEMP STATE");
+    sdMarkIoFault("state temp cleanup");
+    return false;
+  }
   File f = SD_MMC.open(tmp, FILE_WRITE);
   if (!f) { sdSaveSetError("STATE WRITE FAILED / CARD FULL"); sdMarkIoFault("state open for write"); return false; }
   bool ok = f.write((const uint8_t *)&h, sizeof(h)) == sizeof(h) &&
@@ -611,7 +617,13 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
   ok = ok && sdStateVerifyFile(tmp, h, expected);
   if (!ok) { sdSaveSetError("STATE WRITE/READBACK VERIFY FAILED"); sdMarkIoFault("state short write or verification"); SD_MMC.remove(tmp); return false; }
   if (SD_MMC.exists(path)) {
-    SD_MMC.remove(bak);
+    // Do not rotate the current state over a backup that could not be cleared.
+    if (SD_MMC.exists(bak) && !SD_MMC.remove(bak)) {
+      sdSaveSetError("CANNOT CLEAR STATE BACKUP");
+      sdMarkIoFault("state backup cleanup");
+      SD_MMC.remove(tmp);
+      return false;
+    }
     if (!SD_MMC.rename(path, bak)) { sdSaveSetError("STATE BACKUP FAILED"); sdMarkIoFault("state backup rename"); SD_MMC.remove(tmp); return false; }
   }
   if (!SD_MMC.rename(tmp, path)) {

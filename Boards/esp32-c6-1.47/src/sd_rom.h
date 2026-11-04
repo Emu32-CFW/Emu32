@@ -110,7 +110,13 @@ static bool sdAtomicSaveWrite(const char *path, const uint8_t *data, size_t len)
   }
 
   // Arduino FILE_WRITE appends, so always start with an empty temporary file.
-  SD.remove(tmp);
+  // A stale temporary file must never be appended to. Arduino FILE_WRITE
+  // opens in append mode, so require successful cleanup before starting a state save.
+  if (SD.exists(tmp) && !SD.remove(tmp)) {
+    sdSaveSetError("CANNOT CLEAR TEMP STATE");
+    sdMarkIoFault("state temp cleanup");
+    return false;
+  }
   File f = SD.open(tmp, FILE_WRITE);
   if (!f) {
     sdSaveSetError("SD WRITE FAILED / CARD FULL");
@@ -579,7 +585,13 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
   ok = ok && sdStateVerifyFile(tmp, h, expected);
   if (!ok) { sdSaveSetError("STATE WRITE/READBACK VERIFY FAILED"); sdMarkIoFault("state short write or verification"); SD.remove(tmp); return false; }
   if (SD.exists(path)) {
-    SD.remove(bak);
+    // Do not rotate the current state over a backup that could not be cleared.
+    if (SD.exists(bak) && !SD.remove(bak)) {
+      sdSaveSetError("CANNOT CLEAR STATE BACKUP");
+      sdMarkIoFault("state backup cleanup");
+      SD.remove(tmp);
+      return false;
+    }
     if (!SD.rename(path, bak)) { sdSaveSetError("STATE BACKUP FAILED"); sdMarkIoFault("state backup rename"); SD.remove(tmp); return false; }
   }
   if (!SD.rename(tmp, path)) {
