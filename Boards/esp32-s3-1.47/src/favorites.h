@@ -31,10 +31,15 @@ static void favoriteLoad() {
   }
   const size_t expectedBytes = f.size();
   bool overflowed = false;
+  bool malformed = false;
   while (f.available()) {
     char line[FAVORITE_PATH_LEN];
     size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
     line[n] = 0;
+    // Embedded NUL bytes make a damaged path look like a valid shorter path
+    // to C string functions. Keep the entry out and block writes to avoid
+    // silently replacing a list that contained an unreadable favorite.
+    if (memchr(line, '\0', n) != nullptr) { malformed = true; continue; }
     // readBytesUntil() can return a full buffer without consuming the rest
     // of an overlong line. Drain that line so its tail isn't parsed as a path.
     if (n == sizeof(line) - 1 && f.available() &&
@@ -72,6 +77,12 @@ static void favoriteLoad() {
     favoriteCount = 0;
     Serial.printf("FAVORITES: incomplete read (%u/%u bytes); refusing to overwrite list\n",
                   (unsigned)consumedBytes, (unsigned)expectedBytes);
+    return;
+  }
+  if (malformed) {
+    // Keep valid entries visible, but block edits so a save cannot erase the
+    // malformed entry that was skipped during parsing.
+    Serial.println("FAVORITES: malformed path data; refusing to overwrite list");
     return;
   }
   if (overflowed) {
