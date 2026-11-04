@@ -498,7 +498,12 @@ static void readPad() {
   uint8_t s = 0;
   for (int i = 0; i < 8; i++)
     if (padPins[i] >= 0 && digitalRead(padPins[i]) == LOW) s |= (1 << i);
-  s |= padLayout(bleBtn, bleDir, inGame, curSys);   // Bluetooth controller
+  // Ignore cached HID state as soon as the BLE link drops. The disconnect
+  // callback also clears it, but this guards the frame before that callback runs.
+  const bool bleActive = padLinked();
+  const uint16_t activeBleButtons = bleActive ? bleBtn : 0;
+  const uint8_t activeBleDirections = bleActive ? bleDir : 0;
+  s |= padLayout(activeBleButtons, activeBleDirections, inGame, curSys); // Bluetooth controller
   // no opposite d-pad directions at once (some games glitch)
   if ((s & 0x30) == 0x30) s &= ~0x30;
   if ((s & 0xC0) == 0xC0) s &= ~0xC0;
@@ -526,7 +531,7 @@ static void readPad() {
 // screen has been blanked, so the caller must redraw.
 static bool rotateHotkey() {
   static bool was = false;
-  const bool now = (padState & 0x04) && (bleBtn & XB_RB);
+  const bool now = padLinked() && (padState & 0x04) && (bleBtn & XB_RB);
   const bool fire = now && !was;
   was = now;
   if (fire) lcdSetRotation(lcdRot + 1);
