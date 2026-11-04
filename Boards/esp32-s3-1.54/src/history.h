@@ -69,7 +69,14 @@ static bool recentLoad() {
       line[n] = 0;
     }
     while (n && (line[n-1]=='\r' || line[n-1]==' ')) line[--n] = 0;
-    if (!n || line[0] != '/' || n >= sizeof(recentPaths[0])) continue;
+    if (!n) continue;  // Ignore harmless blank lines.
+    if (line[0] != '/' || n >= sizeof(recentPaths[0])) {
+      // A non-empty line that is not a complete absolute ROM path may be a
+      // truncated/corrupt entry. Do not silently drop it and later overwrite
+      // the history file with only the entries that happened to parse.
+      malformed = true;
+      continue;
+    }
     bool duplicate = false;
     for (int i=0; i<recentCount; ++i) if (recentPathEquals(recentPaths[i], line)) { duplicate=true; break; }
     if (!duplicate) {
@@ -96,7 +103,7 @@ static bool recentLoad() {
   if (overflowed) {
     // Keep the newest visible entries, but block edits: saving a capped list
     // would silently discard valid history entries beyond RECENTS_MAX.
-    Serial.printf("RECENTS: more than %d entries; refusing to overwrite history\\n", RECENTS_MAX);
+    Serial.printf("RECENTS: more than %d entries; refusing to overwrite history\n", RECENTS_MAX);
     return false;
   }
   recentLoadSafe = true;
