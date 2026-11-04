@@ -47,6 +47,9 @@ static bool recentLoad() {
   // and are misclassified as an SD read failure.
   while (f.available()) {
     char line[ROM_PATH_LEN]; size_t n = f.readBytesUntil('\n', line, sizeof(line)-1); line[n] = 0;
+    // Reject embedded NUL bytes: otherwise a corrupted line such as
+    // "/roms/nes/game.nes\\0junk" is silently accepted as a different ROM path.
+    if (memchr(line, '\0', n) != nullptr) continue;
     // readBytesUntil() may stop at the buffer limit without consuming the
     // rest of an oversized line. Drain it so a tail fragment cannot become
     // a separate, misleading recent-game path.
