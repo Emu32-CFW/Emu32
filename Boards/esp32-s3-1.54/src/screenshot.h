@@ -282,6 +282,14 @@ static void shotSave() {
 // SELECT (View) + RT. Edge-triggered: hold it and you still get one screenshot.
 static void shotHotkey() {
   static bool was = false;
+
+  // Ignore stale controller state after a BLE disconnect.
+  if (!padLinked()) {
+    was = false;
+    shotRequest = false;
+    return;
+  }
+
   const bool now = (padState & 0x04) && bleRT;
   if (now && !was) shotRequest = true;
   was = now;
@@ -291,6 +299,9 @@ static void shotHotkey() {
 static void shotArm() {
   if (!shotRequest) return;
   shotRequest = false;
+
+  // Recheck the BLE link in case it dropped after the hotkey was detected.
+  if (!padLinked()) return;
   shotBegin();
 }
 
