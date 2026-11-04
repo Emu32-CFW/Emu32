@@ -362,7 +362,9 @@ static inline bool linkEncrypted() { return bleClient->isConnected() && bleClien
 // Connect + encrypt + subscribe. pairing = true when this is a brand new pairing (a failed
 // attempt then throws away the half-made bond so the next try starts clean).
 static bool bleConnectPad(int attempts = 3, uint32_t timeoutMs = 8000, bool pairing = false) {
-  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0;
+  // Clear the combined emulator input too, so failed reconnect attempts cannot
+  // leave a stale button or direction held in the menu/game loop.
+  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0; padState = 0;
   if (!bleClient) {
     bleClient = NimBLEDevice::createClient();
     bleClient->setClientCallbacks(&padClientCB, false);
@@ -415,6 +417,7 @@ static bool bleConnectPad(int attempts = 3, uint32_t timeoutMs = 8000, bool pair
     return true;
   }
   bleConnected = false;
+  bleBtn = 0; bleRT = false; bleDir = 0; padState = 0;
   return false;
 }
 
