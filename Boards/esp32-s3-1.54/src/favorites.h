@@ -47,6 +47,7 @@ static void favoriteLoad() {
       // A pending LF or CRLF is a line terminator, not evidence that the
       // path was truncated. Keep maximum-length paths valid with either
       // newline convention; drain only when more path data remains.
+      malformed = true;  // Never allow a later save to erase this skipped entry.
       while (f.available()) { int c = f.read(); if (c < 0 || c == '\n') break; }
       continue;
     }
@@ -59,7 +60,11 @@ static void favoriteLoad() {
       line[n] = 0;
     }
     while (n && (line[n-1] == '\r' || line[n-1] == ' ')) line[--n] = 0;
-    if (!n || line[0] != '/' || n >= sizeof(favoritePaths[0])) continue;
+    if (!n) continue;  // Ignore harmless blank lines.
+    if (line[0] != '/' || n >= sizeof(favoritePaths[0])) {
+      malformed = true;  // Preserve the original file if an entry cannot be parsed.
+      continue;
+    }
     bool duplicate = false;
     for (int i=0; i<favoriteCount; ++i) {
       if (!strcasecmp(favoritePaths[i], line)) { duplicate = true; break; }
