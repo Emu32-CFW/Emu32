@@ -43,6 +43,9 @@ static bool recentLoad() {
   }
   const size_t expectedBytes = f.size();
   bool malformed = false;
+  // Track valid entries beyond the visible limit so a capped list cannot
+  // erase older recent-game entries when saved back to the SD card.
+  bool overflowed = false;
   // Consume the entire file even after the in-memory list reaches capacity.
   // Otherwise valid extra/duplicate lines leave the file position short of EOF
   // and are misclassified as an SD read failure.
@@ -78,8 +81,12 @@ static bool recentLoad() {
     }
     bool duplicate = false;
     for (int i=0; i<recentCount; ++i) if (recentPathEquals(recentPaths[i], line)) { duplicate=true; break; }
-    if (!duplicate && recentCount < RECENTS_MAX)
-      strlcpy(recentPaths[recentCount++], line, sizeof(recentPaths[0]));
+    if (!duplicate) {
+      if (recentCount < RECENTS_MAX)
+        strlcpy(recentPaths[recentCount++], line, sizeof(recentPaths[0]));
+      else
+        overflowed = true;
+    }
   }
   const size_t consumedBytes = f.position();
   f.close();
@@ -93,6 +100,12 @@ static bool recentLoad() {
     // Keep readable entries available for display, but block recentSave():
     // rewriting this partial view would permanently discard damaged entries.
     Serial.println("RECENTS: malformed path data; refusing to overwrite history");
+    return false;
+  }
+  if (overflowed) {
+    // The menu displays only RECENTS_MAX entries; never overwrite the full
+    // history file with this incomplete in-memory view.
+    Serial.printf("RECENTS: more than %d entries; refusing to overwrite history\\n", RECENTS_MAX);
     return false;
   }
   recentLoadSafe = true;

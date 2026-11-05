@@ -101,8 +101,8 @@ static bool recentLoad() {
     return false;
   }
   if (overflowed) {
-    // Keep the newest visible entries, but block edits: saving a capped list
-    // would silently discard valid history entries beyond RECENTS_MAX.
+    // Preserve the complete source file: saving this capped in-memory list
+    // would silently discard valid entries beyond RECENTS_MAX.
     Serial.printf("RECENTS: more than %d entries; refusing to overwrite history\n", RECENTS_MAX);
     return false;
   }
