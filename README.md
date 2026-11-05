@@ -14,5 +14,8 @@ ESP32 C6 1.47 Inch LCD Dev Board<br>
 ESP32 S3 1.47 Inch LCD Dev Board<br>
 ESP32 S3 1.54 Inch LCD Dev Board
 
+# Nightly Builds
+Nightly builds of Emu32 can be found over at the [Nightly Repository](https://github.com/Emu32-CFW/Emu32-Nightly). New Nightly builds come out just about daily unless no work is done that day.
+
 # Need help with Emu32?
 Join our [Discord Server](https://discord.gg/DT2FW3xecq) to get support, leave feedback, contribute, and more.
