@@ -252,7 +252,8 @@ static void settingsLoad() {
   size_t lineLen = 0;
   size_t bytesRead = 0;
   bool lineOverflow = false;
-  while (bytesRead < SETTINGS_MAX_BYTES) {
+  // Include one EOF-processing iteration when the file is exactly 512 bytes.
+  while (bytesRead <= SETTINGS_MAX_BYTES) {
     int ch;
     if (f.available()) {
       ch = f.read();
