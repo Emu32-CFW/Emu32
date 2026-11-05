@@ -70,6 +70,9 @@ static void lcdBlit(int x, int y, int w, int h, const uint16_t *img) {
   // never reach it (they would wrap to the opposite edge of panel RAM).
   if (!img || w <= 0 || h <= 0 || w > LCD_LONG) return;
   const int srcW = w;
+  // Reject images wholly above/left before negating coordinates. Besides
+  // avoiding pointless work, this keeps -x/-y defined for INT_MIN inputs.
+  if (x <= -w || y <= -h) return;
   int srcX = 0, srcY = 0;
   if (x < 0) { srcX = -x; w -= srcX; x = 0; }
   if (y < 0) { srcY = -y; h -= srcY; y = 0; }
