@@ -43,12 +43,16 @@ static bool coreLoad(uint8_t system, const char *path) {
 }
 
 static void coreShutdown(uint8_t system) {
+  // Reject invalid IDs before dispatch. In particular, never let an unknown
+  // system fall through to nesShutdown() and terminate an unrelated game.
+  if (system >= SYS_COUNT) return;
   switch (system) {
-    case SYS_GB:    gbShutdown(); break;
-    case SYS_GBC:   gbcShutdown(); break;
-    case SYS_A2600: a26Shutdown(); break;
+    case SYS_GB:      gbShutdown(); break;
+    case SYS_GBC:     gbcShutdown(); break;
+    case SYS_A2600:   a26Shutdown(); break;
     case SYS_GENESIS: genShutdown(); break;
-    case SYS_NES:   default: nesShutdown(); break;
+    case SYS_NES:     nesShutdown(); break;
+    default:          break;
   }
 }
 
