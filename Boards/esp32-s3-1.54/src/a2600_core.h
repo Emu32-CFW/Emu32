@@ -679,7 +679,7 @@ static uint8_t tiaRd(uint16_t a) {
   if (r == 0x0C || r == 0x0D) {                                     // INPT4 / INPT5: fire buttons
     const int i = r - 0x0C;
     const uint8_t v = fireDown[i] ? 0x00 : 0x80;
-    if (vblank & 0x40) { inptLatch[i] &= v; return inptLatch[i]; }
+    if (vblank & 0x80) { inptLatch[i] &= v; return inptLatch[i]; }
     return v;
   }
   if (r < 0x0C) return 0x80;                                        // INPT0-3 (paddles): not connected
@@ -697,7 +697,7 @@ static void tiaWr(uint16_t a, uint8_t v) {
       break;
     case 0x01:                                                      // VBLANK
       vblank = v;
-      if (!(v & 0x40)) inptLatch[0] = inptLatch[1] = 0x80;
+      if (!(v & 0x80)) inptLatch[0] = inptLatch[1] = 0x80;
       break;
     case 0x02: wsync = true; break;                                 // WSYNC
     case 0x04: nusiz[0] = v; mapDirty = true; break;
