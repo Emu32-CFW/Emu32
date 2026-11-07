@@ -816,9 +816,10 @@ static bool reserveRomList(int needed) {
 // a different game. If the selected file disappeared, keep the old index and
 // clamp it to the refreshed list below.
 static bool scanRoms() {
-  // This flag describes only the current scan. Leaving it set after a
-  // previous low-memory scan caused later successful scans to keep showing
-  // the stale "LIST INCOMPLETE" warning forever.
+  // Keep the previous warning if this scan cannot even allocate its initial
+  // list: in that case the old ROM list remains active and its warning must
+  // remain accurate. Once a new scan starts successfully, reset the flag.
+  const bool previousTruncated = romListTruncated;
   romListTruncated = false;
   char previousSelection[ROM_NAME_LEN] = {0};
   const int previousIndex = menuSel[curSys];
@@ -830,12 +831,14 @@ static bool scanRoms() {
   // If RAM is exhausted, keep the previous usable list rather than blanking it.
   const int initialCapacity = ROM_LIST_INITIAL_CAPACITY;
   if ((size_t)initialCapacity > SIZE_MAX / sizeof(*romNames)) {
+    romListTruncated = previousTruncated;
     strlcpy(loadErr1, "NOT ENOUGH RAM", sizeof(loadErr1));
     strlcpy(loadErr2, "ROM LIST", sizeof(loadErr2));
     return false;
   }
   char **freshNames = (char **)malloc((size_t)initialCapacity * sizeof(*freshNames));
   if (!freshNames) {
+    romListTruncated = previousTruncated;
     strlcpy(loadErr1, "NOT ENOUGH RAM", sizeof(loadErr1));
     strlcpy(loadErr2, "OLD LIST KEPT", sizeof(loadErr2));
     return false;
