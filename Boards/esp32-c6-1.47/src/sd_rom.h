@@ -267,8 +267,16 @@ static bool sdAtomicSaveLoad(const char *path, uint8_t *data, size_t len) {
     f.close();
     if (got == len) {
       memcpy(data, staged, len);
+      // If the primary save was missing or invalid, restore the verified
+      // backup as the new primary. Otherwise every boot would repeat recovery
+      // and a later interrupted save could leave the same damaged primary in
+      // place again. The atomic writer keeps the old generations until the
+      // replacement has been written and verified.
+      if (i != 0 && !sdAtomicSaveWrite(path, staged, len)) {
+        Serial.printf("SAVE: loaded recovery data, but could not repair primary: %s\n", sdSaveLastError);
+      }
       free(staged);
-      sdSaveLastError[0] = '\0';
+      if (i == 0) sdSaveLastError[0] = '\0';
       Serial.printf("SAVE: loaded %s (%u bytes)%s\n", candidates[i], (unsigned)len, i == 1 ? " [backup recovery]" : (i == 2 ? " [previous backup recovery]" : ""));
       return true;
     }
