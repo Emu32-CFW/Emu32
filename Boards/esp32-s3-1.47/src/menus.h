@@ -275,7 +275,8 @@ static void saveManagerScanDir(const char *dir, const char *systemLabel) {
             saveManagerCount++;
           } else {
             // Never expose a truncated path: it could target a different save.
-            e.path[0] = '\\0';
+            e.path[0] = '\0';
+            e.label[0] = '\0';
             saveManagerOverflowCount++;
           }
         } else {
