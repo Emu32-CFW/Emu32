@@ -816,6 +816,10 @@ static bool reserveRomList(int needed) {
 // a different game. If the selected file disappeared, keep the old index and
 // clamp it to the refreshed list below.
 static bool scanRoms() {
+  // This flag describes only the current scan. Leaving it set after a
+  // previous low-memory scan caused later successful scans to keep showing
+  // the stale "LIST INCOMPLETE" warning forever.
+  romListTruncated = false;
   char previousSelection[ROM_NAME_LEN] = {0};
   const int previousIndex = menuSel[curSys];
   if (romNames && previousIndex >= 0 && previousIndex < romCount) {
