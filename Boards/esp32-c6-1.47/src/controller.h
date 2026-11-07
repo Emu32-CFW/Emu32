@@ -495,9 +495,26 @@ static inline void controllerResetInput() {
 }
 
 static void readPad() {
+  // Debounce the physical buttons without blocking the emulation/menu loop.
+  // Mechanical switches can briefly toggle several times during one press;
+  // accept a new state only after it has remained stable for 12 ms.
+  static bool physicalStable[8] = {};
+  static bool physicalRawPrev[8] = {};
+  static uint32_t physicalChangedAt[8] = {};
+  const uint32_t inputNowMs = millis();
+
   uint8_t s = 0;
-  for (int i = 0; i < 8; i++)
-    if (padPins[i] >= 0 && digitalRead(padPins[i]) == LOW) s |= (1 << i);
+  for (int i = 0; i < 8; i++) {
+    const bool rawPressed = padPins[i] >= 0 && digitalRead(padPins[i]) == LOW;
+    if (rawPressed != physicalRawPrev[i]) {
+      physicalRawPrev[i] = rawPressed;
+      physicalChangedAt[i] = inputNowMs;
+    } else if (physicalStable[i] != rawPressed &&
+               (uint32_t)(inputNowMs - physicalChangedAt[i]) >= 12) {
+      physicalStable[i] = rawPressed;
+    }
+    if (physicalStable[i]) s |= (1 << i);
+  }
   // Ignore cached HID state as soon as the BLE link drops. The disconnect
   // callback also clears it, but this guards the frame before that callback runs.
   const bool bleActive = padLinked();
