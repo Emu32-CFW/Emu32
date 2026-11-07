@@ -40,7 +40,9 @@ static bool coreLoad(uint8_t system, const char *path) {
   }
 }
 
-static void coreShutdown(uint8_t system) {\n  // Ignore invalid IDs before dispatch; never shut down an unrelated core.\n  if (system >= SYS_COUNT) return;
+static void coreShutdown(uint8_t system) {
+  // Ignore invalid IDs before dispatch; never shut down an unrelated core.
+  if (system >= SYS_COUNT) return;
   switch (system) {
     case SYS_GB:    gbShutdown(); break;
     case SYS_GBC:   gbcShutdown(); break;
