@@ -407,7 +407,9 @@ static uint8_t rd(uint16_t a);
 
 static uint8_t ioRead(uint16_t a) {
   if (a == 0x4016) {
-    uint8_t r = (padShift & 1) | 0x40;
+    // While strobe is high, the controller continuously exposes the live A
+    // button. After the falling edge, reads shift through the latched buttons.
+    uint8_t r = ((padStrobe ? padState : padShift) & 1) | 0x40;
     if (!padStrobe) padShift = (padShift >> 1) | 0x80;
     return r;
   }
@@ -421,8 +423,10 @@ static void ioWrite(uint16_t a, uint8_t v) {
     else          { for (int i = 0; i < 256; i++) oam[(uint8_t)(oamAddr + i)] = rd(base + i); }
     dmaStall += 513;
   } else if (a == 0x4016) {
-    padStrobe = v & 1;
-    if (padStrobe) padShift = padState;
+    const bool nextStrobe = v & 1;
+    // The falling edge captures the complete controller state for serial reads.
+    if (padStrobe && !nextStrobe) padShift = padState;
+    padStrobe = nextStrobe;
   }
   else if (a >= 0x4000 && a <= 0x4017) nesApu[a - 0x4000] = v;
 }
