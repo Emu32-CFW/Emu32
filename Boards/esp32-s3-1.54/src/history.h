@@ -70,7 +70,7 @@ static bool recentLoad() {
     }
     while (n && (line[n-1]=='\r' || line[n-1]==' ')) line[--n] = 0;
     if (!n) continue;  // Ignore harmless blank lines.
-    if (strncmp(line, "/roms/", 6) != 0 || n >= sizeof(recentPaths[0])) {
+    if (strncasecmp(line, "/roms/", 6) != 0 || n >= sizeof(recentPaths[0])) {
       // A non-empty line outside the ROM directory is not a valid ROM path and may be a
       // truncated/corrupt entry. Do not silently drop it and later overwrite
       // the history file with only the entries that happened to parse.

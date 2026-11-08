@@ -61,7 +61,7 @@ static void favoriteLoad() {
     }
     while (n && (line[n-1] == '\r' || line[n-1] == ' ')) line[--n] = 0;
     if (!n) continue;  // Ignore harmless blank lines.
-    if (strncmp(line, "/roms/", 6) != 0 || n >= sizeof(favoritePaths[0])) {
+    if (strncasecmp(line, "/roms/", 6) != 0 || n >= sizeof(favoritePaths[0])) {
       malformed = true;  // Preserve the original file if an entry cannot be parsed.
       continue;
     }
@@ -151,7 +151,8 @@ static bool favoriteToggle(const char *path) {
   // Do not replace a list whose on-card contents could not be read safely.
   if (!favoriteLoadSafe) return false;
   // Never persist a truncated path: it could point at a different ROM.
-  if (!path || path[0] != '/' || strlen(path) >= sizeof(favoritePaths[0])) return false;
+  if (!path || strncasecmp(path, "/roms/", 6) != 0 ||
+      strlen(path) >= sizeof(favoritePaths[0])) return false;
   const int found = favoriteIndex(path);
   if (found >= 0) {
     char removed[FAVORITE_PATH_LEN];
@@ -180,8 +181,12 @@ static bool favoriteToggle(const char *path) {
 
 static int favoriteSystemForPath(const char *path) {
   if (!path) return -1;
+  const size_t pathLen = strlen(path);
   for (int i=0; i<SYS_COUNT; ++i) {
     const size_t n = strlen(sysDir[i]);
+    // Check the length before reading path[n]: favorites can be edited or
+    // corrupted on the SD card, and a short path must not cause an OOB read.
+    if (pathLen <= n) continue;
     if (strncasecmp(path, sysDir[i], n) != 0 || path[n] != '/') continue;
     // ROM lists contain files directly in each system folder. Reject edited
     // or stale entries that try to escape that folder or point into a subdir.
