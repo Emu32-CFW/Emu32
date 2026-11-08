@@ -61,7 +61,7 @@ static void favoriteLoad() {
     }
     while (n && (line[n-1] == '\r' || line[n-1] == ' ')) line[--n] = 0;
     if (!n) continue;  // Ignore harmless blank lines.
-    if (line[0] != '/' || n >= sizeof(favoritePaths[0])) {
+    if (strncmp(line, "/roms/", 6) != 0 || n >= sizeof(favoritePaths[0])) {
       malformed = true;  // Preserve the original file if an entry cannot be parsed.
       continue;
     }
