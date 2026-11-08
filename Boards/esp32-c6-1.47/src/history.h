@@ -109,12 +109,12 @@ static bool recentLoad() {
   recentLoadSafe = true;
   return true;
 }
-static void recentSave() {
-  if (!recentLoadSafe) return;
+static bool recentSave() {
+  if (!recentLoadSafe) return false;
   // Keep the previous history until the replacement file is fully written.
   // Removing recents.txt before rename meant a failed rename silently erased
   // the user's entire recent-games list.
-  if (!sdMount()) return;
+  if (!sdMount()) return false;
   SD.mkdir("/system");
   const char *tmp = "/system/recents.tmp";
   const char *dst = "/system/recents.txt";
@@ -122,7 +122,7 @@ static void recentSave() {
   SD.remove(tmp);
 
   File f = SD.open(tmp, FILE_WRITE);
-  if (!f) return;
+  if (!f) return false;
   bool written = true;
   for (int i=0; i<recentCount; ++i) {
     const size_t len = strlen(recentPaths[i]);
@@ -135,7 +135,7 @@ static void recentSave() {
   f.close();
   if (!written) {
     SD.remove(tmp);
-    return;
+    return false;
   }
 
   // Rotate the old file out of the way, then roll it back if installing the
@@ -147,26 +147,31 @@ static void recentSave() {
   const bool hadBackup = SD.exists(bak);
   // Preserve the last recovery copy until the current primary is moved aside.
   SD.remove(bakPrev);
-  if (hadBackup && !SD.rename(bak, bakPrev)) { SD.remove(tmp); return; }
+  if (hadBackup && !SD.rename(bak, bakPrev)) { SD.remove(tmp); return false; }
   if (hadOld && !SD.rename(dst, bak)) {
     if (hadBackup) SD.rename(bakPrev, bak);
     SD.remove(tmp);
-    return;
+    return false;
   }
   if (!SD.rename(tmp, dst)) {
     if (hadOld) SD.rename(bak, dst);
     if (hadBackup) SD.rename(bakPrev, bak);
     SD.remove(tmp);
-    return;
+    return false;
   }
   // Only retire recovery copies after the replacement is safely installed.
   SD.remove(bakPrev);
   SD.remove(bak);
+  return true;
 }
 static void recentRecord(const char *path) {
   // Do not store a truncated path that could point to a different ROM.
   if (!path || path[0] != '/' || strlen(path) >= sizeof(recentPaths[0]) || !sdMount()) return;
   if (!recentLoad()) return;
+  // Keep the in-memory list consistent with the SD card if the atomic save fails.
+  char previousPaths[RECENTS_MAX][ROM_PATH_LEN];
+  const int previousCount = recentCount;
+  memcpy(previousPaths, recentPaths, sizeof(previousPaths));
   int found=-1;
   for (int i=0; i<recentCount; ++i) if (recentPathEquals(recentPaths[i], path)) { found=i; break; }
   if (found >= 0) for (int i=found; i>0; --i) strlcpy(recentPaths[i], recentPaths[i-1], sizeof(recentPaths[i]));
@@ -175,7 +180,10 @@ static void recentRecord(const char *path) {
     for (int i=last; i>0; --i) strlcpy(recentPaths[i], recentPaths[i-1], sizeof(recentPaths[i]));
   }
   strlcpy(recentPaths[0], path, sizeof(recentPaths[0]));
-  recentSave();
+  if (!recentSave()) {
+    recentCount = previousCount;
+    memcpy(recentPaths, previousPaths, sizeof(recentPaths));
+  }
 }
 static int recentSystemForPath(const char *path) {
   if (!path) return -1;
