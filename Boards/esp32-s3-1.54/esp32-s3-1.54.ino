@@ -896,6 +896,13 @@ void setup() {
   setCpuFrequencyMhz(240);
   Serial.printf("CPU clock: %u MHz\n", (unsigned)getCpuFrequencyMhz());
   // Initialize audio silently. No startup beep: sound is only produced by games.
+  // DIAG: set to 1 to boot without touching the audio codec / I2S.
+#define DIAG_NO_AUDIO 0
+#if DIAG_NO_AUDIO
+  if (true) {
+    Serial.println("DIAG: audio init skipped");
+  } else
+#endif
   if (!EmuAudio::begin()) {
     Serial.printf("WARN: audio init failed (ES8311=%s, I2S=%s)\n",
                   EmuAudio::isCodecReady() ? "OK" : "NOT FOUND/INIT ERROR",
