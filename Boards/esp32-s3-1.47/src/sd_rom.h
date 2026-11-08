@@ -610,8 +610,8 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
   const size_t expected = sizeof(SdStateHeader) + (size_t)payloadWide;
   SdStateHeader h = {{'E','M','U','S','T','A','T','E'}, 2, system, coreSize, memSize, ramSize,
                      sdStatePayloadCrc(core, coreSize, mem, memSize, ramData, ramSize)};
-  // A stale temporary file must never be appended to. Arduino FILE_WRITE
-  // opens in append mode, so require successful cleanup before starting a state save.
+  // FILE_WRITE appends on Arduino SD implementations. Never append a new
+  // state to a stale temporary file if cleanup fails.
   if (SD_MMC.exists(tmp) && !SD_MMC.remove(tmp)) {
     sdSaveSetError("CANNOT CLEAR TEMP STATE");
     sdMarkIoFault("state temp cleanup");
