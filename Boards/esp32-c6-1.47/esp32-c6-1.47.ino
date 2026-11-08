@@ -779,6 +779,9 @@ void setup() {
                                        "DEEPSLEEP", "BROWNOUT", "SDIO", "USB", "JTAG", "EFUSE", "PWR_GLITCH", "CPU_LOCKUP" };
     const unsigned r = (unsigned)esp_reset_reason();
     Serial.printf("Reset reason: %s (%u)\n", r < 16 ? why[r] : "?", r);   // PANIC / *_WDT / BROWNOUT = a crash
+    // PANIC(4) / INT_WDT(5) / TASK_WDT(6) / WDT(7) / BROWNOUT(9) / CPU_LOCKUP(15): break a possible boot loop.
+    bleAutoDisabled = (r == 4 || r == 5 || r == 6 || r == 7 || r == 9 || r == 15);
+    if (bleAutoDisabled) Serial.println("Previous boot crashed: BLE auto-reconnect disabled this boot");
   }
   for (int i = 0; i < 8; i++) if (padPins[i] >= 0) pinMode(padPins[i], INPUT_PULLUP);
   pinMode(PAIR_PIN, INPUT_PULLUP);

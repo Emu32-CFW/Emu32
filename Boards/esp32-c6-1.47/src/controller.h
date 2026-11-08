@@ -16,6 +16,10 @@ static volatile uint16_t  bleBtn = 0;      // raw Xbox button bits from the last
 static volatile uint8_t   bleDir = 0;      // d-pad + left stick as UP/DOWN/LEFT/RIGHT bits (0xF0)
 static volatile bool      bleConnected = false;
 static bool               bleInited = false;
+// Crash-loop breaker: set in setup() when the previous reset was a crash (panic / watchdog /
+// brownout). While set, the saved pad is NOT auto-reconnected (startup or menus), so a fault in
+// the BLE reconnect path cannot reboot the device forever. Pressing BOOT to pair clears it.
+static bool               bleAutoDisabled = false;
 static NimBLEAddress      bleTarget;
 static NimBLEClient      *bleClient = nullptr;
 
@@ -305,6 +309,7 @@ static void bleForgetLast() {
 
 static void blePairStart() {
   if (pairState != PAIR_IDLE) return;
+  bleAutoDisabled = false;                                  // user explicitly asked for BLE
   bleFail = "";
   if (!bleInit()) { bleFail = "BLE INIT"; ledSignal(false); backlightBlink(4); return; }
   if (bleClient && bleClient->isConnected()) bleClient->disconnect();
@@ -431,6 +436,7 @@ static bool bleConnectPad(int attempts = 3, uint32_t timeoutMs = 8000, bool pair
 static uint32_t bleRetryAt = 0;
 static void bleBackgroundReconnect() {
   if (inGame || pairState != PAIR_IDLE || padLinked()) { bleRetryAt = millis() + 1500; return; }
+  if (bleAutoDisabled) return;                             // previous boot crashed: only manual BOOT pairing
   if ((int32_t)(millis() - bleRetryAt) < 0) return;
   bleRetryAt = millis() + BLE_RETRY_MS;
   if (digitalRead(PAIR_PIN) == LOW) return;                // BOOT held: the user is about to pair a new pad
@@ -477,6 +483,7 @@ static void bleTick() {
 // Startup: reconnect the last controller. It must be switched on (not in pairing
 // mode). Blocks for a few seconds; returns true when it is connected.
 static bool bleAutoReconnect() {
+  if (bleAutoDisabled) { Serial.println("BLE: auto-reconnect skipped (previous boot crashed)"); return false; }
   if (!bleLoadSaved() || !bleInit()) return false;
   Serial.printf("BLE: reconnecting to saved controller %s\n", bleTarget.toString().c_str());
   bool ok = bleConnectPad(2, 3000, false) && padLinked();
