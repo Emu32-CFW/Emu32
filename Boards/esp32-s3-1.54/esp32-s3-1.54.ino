@@ -603,7 +603,8 @@ static void splash() {
   Serial.println("Emu32");
 
   uint32_t t0 = millis();
-  if (bleHaveSaved()) {                                       // auto-reconnect last controller
+  Serial.println("BOOT: splash -> BLE check");
+  if (!bleAutoDisabled && bleHaveSaved()) {                                       // auto-reconnect last controller
     auto status = [&](const char *m) {
       int w = strlen(m) * 8 - 2;
       lcdTextRow(LCD_H - 20, 14, m, 2, col565(150, 150, 150), 0, (LCD_W - w) / 2);
@@ -613,7 +614,9 @@ static void splash() {
     status(ok ? "PAD CONNECTED" : "PAD NOT FOUND");
   }
   uint32_t el = millis() - t0;
+  Serial.println("BOOT: splash -> delay");
   delay(el < 1800 ? 1800 - el : 700);
+  Serial.println("BOOT: splash done");
 }
 
 
@@ -923,8 +926,14 @@ void setup() {
   Serial.println("LCD: initializing");
   lcdInit();
   // Monitor PWR independently of the emulator loop, which can be busy in cores.
+  // DIAG: set to 1 to test without the power-button task.
+#define DIAG_NO_PWR_TASK 0
+#if DIAG_NO_PWR_TASK
+  const BaseType_t pwrTaskCreated = pdFAIL;
+#else
   const BaseType_t pwrTaskCreated = xTaskCreatePinnedToCore(
-      physicalPowerButtonTask, "pwr_button", 2048, nullptr, 3, nullptr, 0);
+      physicalPowerButtonTask, "pwr_button", 4096, nullptr, 3, nullptr, 0);
+#endif
   Serial.printf("PWR button task: %s\n", pwrTaskCreated == pdPASS ? "started" : "FAILED");
   lcdClearTransition(0);
   lcdTextRow(140, 14, "STARTING EMU32", 2, col565(255, 255, 255), 0);
@@ -960,7 +969,9 @@ void setup() {
   settingsLoad();
   Serial.println("SD: initialization finished");
   coreInitializeBuiltins();
+  Serial.println("BOOT: cores initialised -> startGame");
   startGame(true);
+  Serial.println("BOOT: startGame returned");
 }
 
 void loop() {
