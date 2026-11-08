@@ -593,7 +593,9 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
   sdSaveLastError[0] = '\0';
   if (!path || !core || !coreSize || (memSize && !mem) || (ramSize && !ramData)) { sdSaveSetError("INVALID STATE DATA"); return false; }
   if (!sdMount()) { sdSaveSetError("SD CARD UNAVAILABLE"); return false; }
-  char tmp[208], bak[208];
+  // State paths can include the full FAT filename plus the managed-save hash.
+  // Keep room for the .tmp/.bak suffixes just as battery saves do.
+  char tmp[ROM_PATH_LEN + 32], bak[ROM_PATH_LEN + 32];
   if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp) ||
       snprintf(bak, sizeof(bak), "%s.bak", path) >= (int)sizeof(bak)) { sdSaveSetError("STATE PATH TOO LONG"); return false; }
   // Validate the complete file size before hashing or writing any payload.
