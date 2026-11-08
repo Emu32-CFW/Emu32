@@ -105,7 +105,12 @@ static bool favoriteSave() {
   const char *tmp = "/system/favorites.tmp";
   const char *dst = "/system/favorites.txt";
   const char *bak = "/system/favorites.bak";
-  SD.remove(tmp);
+  // FILE_WRITE may append on Arduino SD. Do not continue if a stale
+  // temporary file cannot be removed; otherwise old entries can be retained.
+  if (SD.exists(tmp) && !SD.remove(tmp)) {
+    Serial.println("FAVORITES: cannot clear temporary file");
+    return false;
+  }
   File f = SD.open(tmp, FILE_WRITE);
   if (!f) return false;
   bool written = true;

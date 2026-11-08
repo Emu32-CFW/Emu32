@@ -591,7 +591,7 @@ static bool sdBuildStatePath(const char *romPath, const char *systemDir, char *o
 static bool sdStateWrite(const char *path, uint16_t system, const void *core, uint32_t coreSize,
                          const void *mem, uint32_t memSize, const void *ramData, uint32_t ramSize) {
   sdSaveLastError[0] = '\0';
-  if (!path || !core || !coreSize || (memSize && !mem) || (ramSize && !ramData)) { sdSaveSetError("INVALID STATE DATA"); return false; }
+  if (!path || !path[0] || !core || !coreSize || (memSize && !mem) || (ramSize && !ramData)) { sdSaveSetError("INVALID STATE DATA"); return false; }
   if (!sdMount()) { sdSaveSetError("SD CARD UNAVAILABLE"); return false; }
   // State paths can include the full FAT filename plus the managed-save hash.
   // Keep room for the .tmp/.bak suffixes just as battery saves do.
@@ -648,7 +648,7 @@ static bool sdStateWrite(const char *path, uint16_t system, const void *core, ui
 static bool sdStateRead(const char *path, uint16_t system, void *core, uint32_t coreSize,
                         void *mem, uint32_t memSize, void *ramData, uint32_t ramSize) {
   sdSaveLastError[0] = '\0';
-  if (!path || !core || !coreSize || (memSize && !mem) || (ramSize && !ramData)) { sdSaveSetError("INVALID STATE DATA"); return false; }
+  if (!path || !path[0] || !core || !coreSize || (memSize && !mem) || (ramSize && !ramData)) { sdSaveSetError("INVALID STATE DATA"); return false; }
   if (!sdMount()) { sdSaveSetError("SD CARD UNAVAILABLE"); return false; }
   char bak[ROM_PATH_LEN + 16]; if (snprintf(bak, sizeof(bak), "%s.bak", path) >= (int)sizeof(bak)) { sdSaveSetError("STATE PATH TOO LONG"); return false; }
   const char *candidate[2] = { path, bak };
