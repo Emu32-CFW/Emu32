@@ -772,6 +772,10 @@ static bool pauseMenu() {
   return false;
 }
 
+// The Arduino loop task defaults to an 8 KB stack, which the menu/SD/BLE/ADC call chains under
+// startGame() can overflow ("Stack canary watchpoint triggered (loopTask)"). Needs arduino-esp32 3.x.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 void setup() {
   Serial.begin(115200);
   {
@@ -842,6 +846,17 @@ void loop() {
       profSamples = 0;
       Serial.printf("PROFILE: %s\n", profileFrames ? "ON (core us)" : "OFF");
     }
+  }
+  // startGame() can return without launching anything (SD mount failed, NOT ENOUGH RAM, card lost...).
+  // Never step an emulator core with no ROM loaded: its buffers are null and the resulting panic
+  // reboots the board straight back to the logo (boot loop). Show the error, then retry the menu.
+  if (!inGame) {
+    static uint32_t retryAt = 0;
+    if ((int32_t)(millis() - retryAt) < 0) { bleTick(); delay(20); return; }
+    Serial.println("No game running: retrying startGame()");
+    startGame(true);
+    retryAt = millis() + 2000;                   // give the user time to read the error / reinsert the card
+    return;
   }
   uint32_t now = micros();
   bool draw = true;
