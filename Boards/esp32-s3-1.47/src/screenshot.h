@@ -283,8 +283,9 @@ static void shotSave() {
 static void shotHotkey() {
   static bool was = false;
 
-  // Ignore stale controller state after a BLE disconnect.
-  if (!padLinked()) {
+  // Screenshots are only valid during gameplay. Also discard any queued
+  // request when the game exits or the BLE link drops between loop passes.
+  if (!inGame || !padLinked()) {
     was = false;
     shotRequest = false;
     return;
@@ -300,8 +301,9 @@ static void shotArm() {
   if (!shotRequest) return;
   shotRequest = false;
 
-  // Recheck the BLE link in case it dropped after the hotkey was detected.
-  if (!padLinked()) return;
+  // Recheck both gameplay state and the BLE link in case either changed
+  // after the hotkey was detected but before the next frame was armed.
+  if (!inGame || !padLinked()) return;
   shotBegin();
 }
 
