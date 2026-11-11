@@ -6,8 +6,10 @@
 //  as a DualShock 4 / Switch Pro in classic mode cannot work with this chip.
 // ============================================================================
 #include <esp_timer.h>
+#include <driver/gpio.h>
 #define PAIR_PIN        0        // on-board BOOT button (GPIO0)
 #define PAIR_SCAN_MS    30000    // give up scanning after this long
+#define BOOT_DEBUG      0        // set to 1: print the raw BOOT pin level whenever it changes (serial 115200)
 #define BLE_DEBUG       0        // set to 1 temporarily to diagnose BLE pairing/HID reports
 
 enum PairState : uint8_t { PAIR_IDLE, PAIR_SCAN, PAIR_CONNECT };
@@ -33,7 +35,7 @@ static volatile uint32_t bootIsrLastMs    = 0;
 static bool              bootIsrAttached  = false;
 static void IRAM_ATTR bootButtonIsr() {
   const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-  if (digitalRead(PAIR_PIN) != LOW) return;                // glitch: pin already back high
+  if (gpio_get_level((gpio_num_t)PAIR_PIN) != 0) return;   // glitch: pin already back high (IRAM-safe read)
   if ((uint32_t)(now - bootIsrLastMs) < 60) return;        // contact bounce
   bootIsrLastMs = now;
   bootPressLatched = true;
@@ -572,6 +574,9 @@ static void readPad() {
   static uint32_t bootRawChangedAt = 0;
   bootButtonInit();                                        // one-time: attach the press-latch interrupt
   const bool bootRaw = (digitalRead(PAIR_PIN) == LOW);
+#if BOOT_DEBUG
+  { static int dbgLast = -1; if ((int)bootRaw != dbgLast) { dbgLast = bootRaw; Serial.printf("BOOT pin (GPIO%d): %s\n", PAIR_PIN, bootRaw ? "LOW (pressed)" : "HIGH"); } }
+#endif
   const uint32_t bootNowMs = millis();
   if (bootPressLatched) {                                  // a press arrived (possibly while we were blocked)
     bootPressLatched = false;
