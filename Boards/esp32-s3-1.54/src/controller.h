@@ -5,6 +5,7 @@
 //  (Xbox Wireless Controller, 8BitDo in BLE mode, ...). Classic-only pads such
 //  as a DualShock 4 / Switch Pro in classic mode cannot work with this chip.
 // ============================================================================
+#include <esp_timer.h>
 #define PAIR_PIN        0        // on-board BOOT button (GPIO0)
 #define PAIR_SCAN_MS    30000    // give up scanning after this long
 #define BLE_DEBUG       0        // set to 1 temporarily to diagnose BLE pairing/HID reports
@@ -22,6 +23,27 @@ static bool               bleInited = false;
 static bool               bleAutoDisabled = false;
 static NimBLEAddress      bleTarget;
 static NimBLEClient      *bleClient = nullptr;
+
+// ---- BOOT button: interrupt-latched --------------------------------------------
+// The menus/emulators block the main loop for long stretches (BLE connect attempts, SD loads), and
+// a polled button is simply missed when a tap falls inside one of those. A falling-edge interrupt
+// latches the press so readPad() sees it no matter when it gets around to looking.
+static volatile bool     bootPressLatched = false;
+static volatile uint32_t bootIsrLastMs    = 0;
+static bool              bootIsrAttached  = false;
+static void IRAM_ATTR bootButtonIsr() {
+  const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+  if (digitalRead(PAIR_PIN) != LOW) return;                // glitch: pin already back high
+  if ((uint32_t)(now - bootIsrLastMs) < 60) return;        // contact bounce
+  bootIsrLastMs = now;
+  bootPressLatched = true;
+}
+static void bootButtonInit() {
+  if (bootIsrAttached) return;
+  pinMode(PAIR_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PAIR_PIN), bootButtonIsr, FALLING);
+  bootIsrAttached = true;
+}
 
 // True only while the radio link is really up (the bleConnected flag alone can go stale
 // if the pad drops while a connect attempt is still running).
@@ -448,7 +470,7 @@ static void bleBackgroundReconnect() {
   if (bleAutoDisabled) return;                             // previous boot crashed: only manual BOOT pairing
   if ((int32_t)(millis() - bleRetryAt) < 0) return;
   bleRetryAt = millis() + BLE_RETRY_MS;
-  if (digitalRead(PAIR_PIN) == LOW) return;                // BOOT held: the user is about to pair a new pad
+  if (digitalRead(PAIR_PIN) == LOW || bootPressLatched) return;  // BOOT pressed: the user is about to pair a new pad
   if (!bleLoadSaved() || !bleInit()) return;               // nothing saved yet: pair once with BOOT
   Serial.println("BLE: looking for the saved controller...");
   const bool ok = bleConnectPad(1, BLE_RETRY_TMO_MS, false) && padLinked();
@@ -548,8 +570,18 @@ static void readPad() {
   static bool bootStable = false;
   static bool bootRawPrev = false;
   static uint32_t bootRawChangedAt = 0;
+  bootButtonInit();                                        // one-time: attach the press-latch interrupt
   const bool bootRaw = (digitalRead(PAIR_PIN) == LOW);
   const uint32_t bootNowMs = millis();
+  if (bootPressLatched) {                                  // a press arrived (possibly while we were blocked)
+    bootPressLatched = false;
+    Serial.println("BOOT: button pressed - starting pairing");
+    blePairStart();
+    bootStable = bootRaw;                                  // still held -> the polled path must not fire again
+    bootRawPrev = bootRaw;
+    bootRawChangedAt = bootNowMs;
+    return;
+  }
   if (bootRaw != bootRawPrev) {
     bootRawPrev = bootRaw;
     bootRawChangedAt = bootNowMs;
