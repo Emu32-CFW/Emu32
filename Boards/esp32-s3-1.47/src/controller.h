@@ -5,8 +5,6 @@
 //  (Xbox Wireless Controller, 8BitDo in BLE mode, ...). Classic-only pads such
 //  as a DualShock 4 / Switch Pro in classic mode cannot work with this chip.
 // ============================================================================
-#include <esp_timer.h>
-#include <driver/gpio.h>
 #define PAIR_PIN        0        // on-board BOOT button (GPIO0)
 #define PAIR_SCAN_MS    30000    // give up scanning after this long
 #define BOOT_DEBUG      0        // set to 1: print the raw BOOT pin level whenever it changes (serial 115200)
@@ -31,19 +29,23 @@ static NimBLEClient      *bleClient = nullptr;
 // a polled button is simply missed when a tap falls inside one of those. A falling-edge interrupt
 // latches the press so readPad() sees it no matter when it gets around to looking.
 static volatile bool     bootPressLatched = false;
-static volatile uint32_t bootIsrLastMs    = 0;
 static bool              bootIsrAttached  = false;
-static void IRAM_ATTR bootButtonIsr() {
-  const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-  if (gpio_get_level((gpio_num_t)PAIR_PIN) != 0) return;   // glitch: pin already back high (IRAM-safe read)
-  if ((uint32_t)(now - bootIsrLastMs) < 60) return;        // contact bounce
-  bootIsrLastMs = now;
-  bootPressLatched = true;
+// No GPIO interrupt (an ISR on GPIO0 rebooted the S3 when BOOT was pressed): a tiny task polls the
+// pin every 5 ms and latches a debounced press, so a tap is still caught while the loop is blocked.
+static void bootButtonTask(void *) {
+  bool prev = false; uint8_t low = 0;
+  for (;;) {
+    const bool lo = (digitalRead(PAIR_PIN) == LOW);
+    if (lo) { if (low < 255) low++; } else low = 0;
+    if (lo && !prev && low >= 3) { bootPressLatched = true; prev = true; }   // ~15 ms stable LOW
+    if (!lo) prev = false;
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
 }
 static void bootButtonInit() {
   if (bootIsrAttached) return;
   pinMode(PAIR_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(PAIR_PIN), bootButtonIsr, FALLING);
+  xTaskCreate(bootButtonTask, "boot_btn", 2048, nullptr, 1, nullptr);
   bootIsrAttached = true;
 }
 
