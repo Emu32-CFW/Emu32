@@ -322,6 +322,10 @@ static PadClientCB padClientCB;
 // One-time BLE stack setup (shared by pairing and auto-reconnect).
 static bool bleInit() {
   if (bleInited) return true;
+  const uint32_t fr = heap_caps_get_free_size(MALLOC_CAP_INTERNAL), lb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  Serial.printf("BLE: init start (internal free %u, largest block %u)\n", (unsigned)fr, (unsigned)lb);
+  Serial.flush();
+  if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE"); return false; }   // would panic -> reboot
   if (!NimBLEDevice::init("Emu32")) {
     Serial.printf("BLE: init failed (free heap %u)\n", (unsigned)ESP.getFreeHeap());
     return false;
@@ -332,6 +336,7 @@ static bool bleInit() {
   NimBLEDevice::setSecurityInitKey(0x01 | 0x02);
   NimBLEDevice::setSecurityRespKey(0x01 | 0x02);
   bleInited = true;
+  Serial.printf("BLE: init done (internal free %u)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
   return true;
 }
 
@@ -376,10 +381,12 @@ static void blePairStart() {
   if (!bleInit()) { bleFail = "BLE INIT"; ledSignal(false); backlightBlink(4); return; }
   if (bleClient && bleClient->isConnected()) bleClient->disconnect();
   bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0;
+  Serial.println("BLE: clearing bonds"); Serial.flush();
   NimBLEDevice::deleteAllBonds();                          // stale keys make re-pairing fail
   bleForgetLast();                                         // old controller no longer bonded
   Serial.printf("BLE: scanning - put the controller in pairing mode (heap %u)\n",
                 (unsigned)ESP.getFreeHeap());
+  Serial.println("BLE: starting scan"); Serial.flush();
   NimBLEScan *scan = NimBLEDevice::getScan();
   if (scan->isScanning()) scan->stop();
   scan->setScanCallbacks(&pairScanCB, false);
