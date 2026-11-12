@@ -882,6 +882,12 @@ static bool pauseMenu() {
 // startGame() can overflow ("Stack canary watchpoint triggered (loopTask)"). Needs arduino-esp32 3.x.
 SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
+// Internal-RAM trace: BLE needs ~50 KB of internal heap, so log how much is left at each boot stage.
+static void memLog(const char *where) {
+  Serial.printf("MEM[%s]: internal free %u, largest %u\n", where,
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
 void setup() {
   initHardwarePowerLatch();
   pinMode(PIN_PWR_BUTTON, INPUT_PULLUP);
@@ -927,6 +933,12 @@ void setup() {
   for (int i = 0; i < 8; i++) if (padPins[i] >= 0) pinMode(padPins[i], INPUT_PULLUP);
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
+  memLog("before BLE");
+  if (!bleAutoDisabled) {                        // start BLE first, while the internal heap is still large
+    const bool up = bleInit();
+    Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
+  }
+  memLog("after BLE");
 
   // Bring up the display before touching SDMMC/BLE or allocating emulator
   // resources. If the card is absent or SDMMC initialization fails, the user
@@ -949,6 +961,7 @@ void setup() {
   lcdClearTransition(0);
   lcdTextRow(140, 14, "STARTING EMU32", 2, col565(255, 255, 255), 0);
   Serial.println("LCD: initialized");
+  memLog("after LCD");
 #if LCD_COLOR_TEST
   {
     // Each band is labelled with the colour it SHOULD be. Compare with what you see:
@@ -979,8 +992,10 @@ void setup() {
   sdInitFolders();                              // failure is non-fatal; show menu regardless
   settingsLoad();
   Serial.println("SD: initialization finished");
+  memLog("after SD");
   coreInitializeBuiltins();
   Serial.println("BOOT: cores initialised -> startGame");
+  memLog("before menu");
   startGame(true);
   Serial.println("BOOT: startGame returned");
 }

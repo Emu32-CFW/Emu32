@@ -45,7 +45,7 @@ static void bootButtonTask(void *) {
 static void bootButtonInit() {
   if (bootIsrAttached) return;
   pinMode(PAIR_PIN, INPUT_PULLUP);
-  xTaskCreate(bootButtonTask, "boot_btn", 2048, nullptr, 1, nullptr);
+  xTaskCreate(bootButtonTask, "boot_btn", 1536, nullptr, 1, nullptr);
   bootIsrAttached = true;
 }
 
@@ -121,7 +121,7 @@ static void ledInit() {
   bootButtonInit();                              // latch BOOT presses from the very start
   if (!flashTaskStarted) {
     flashTaskStarted = true;
-    xTaskCreate(flashTask, "flash", 2048, nullptr, 1, nullptr);
+    xTaskCreate(flashTask, "flash", 1536, nullptr, 1, nullptr);
   }
   if (PIN_LED < 0) return;                       // no LED on this board: never touch a GPIO
   neopixelWrite(PIN_LED, 0, 0, 0);
