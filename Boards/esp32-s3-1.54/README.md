@@ -212,3 +212,6 @@ PWR again starts the board through its hardware power circuit. This is intended
 for battery operation; USB power can keep the board electrically powered even
 after the battery latch is released. Verify these GPIOs against your exact
 ESP32-S3-LCD-1.54 revision before flashing.
+
+## Pairing feedback (no status LED on this board)
+This board has no RGB LED, so pairing is shown on the screen: the backlight flashes once when BOOT is pressed, keeps dipping every half second while scanning/connecting, flashes once when the pad is paired and four times when pairing fails. The BLE stack is now started at boot (while internal RAM is free) instead of on the first BOOT press. Serial (115200) logs every step (`BLE: pairing requested`, `BLE: gamepad found ...`, `BLE: link encrypted`). Put the Xbox pad in pairing mode first (hold the sync button on top until the Xbox logo flashes fast).

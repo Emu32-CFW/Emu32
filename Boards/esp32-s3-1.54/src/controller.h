@@ -88,17 +88,42 @@ static void ledTask(void *) {
   }
 }
 
+// ---- screen flash: pairing feedback for boards without a status LED --------------
+// The backlight is flashed from its own task, so it keeps flashing while the connect step blocks
+// the main loop, and it is impossible to miss:
+//   while scanning / connecting : backlight dips every half second
+//   paired                      : 1 flash        failed / nothing found : 4 flashes
+static volatile uint8_t flashReq = 0;            // one-shot flashes requested by the pairing code
+static bool             flashTaskStarted = false;
+
+static void backlightBlink(int n) { flashReq = (uint8_t)(n < 1 ? 1 : (n > 20 ? 20 : n)); }   // non-blocking
+
+static void flashTask(void *) {
+  for (;;) {
+    if (flashReq) {
+      const uint8_t n = flashReq; flashReq = 0;
+      for (uint8_t i = 0; i < n; i++) {
+        digitalWrite(PIN_LCD_BL, LOW);  vTaskDelay(pdMS_TO_TICKS(110));
+        digitalWrite(PIN_LCD_BL, HIGH); vTaskDelay(pdMS_TO_TICKS(110));
+      }
+    } else if (pairState != PAIR_IDLE) {
+      digitalWrite(PIN_LCD_BL, LOW);  vTaskDelay(pdMS_TO_TICKS(130));
+      digitalWrite(PIN_LCD_BL, HIGH); vTaskDelay(pdMS_TO_TICKS(370));
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(30));
+    }
+  }
+}
+
 static void ledInit() {
+  bootButtonInit();                              // latch BOOT presses from the very start
+  if (!flashTaskStarted) {
+    flashTaskStarted = true;
+    xTaskCreate(flashTask, "flash", 2048, nullptr, 1, nullptr);
+  }
   if (PIN_LED < 0) return;                       // no LED on this board: never touch a GPIO
   neopixelWrite(PIN_LED, 0, 0, 0);
   xTaskCreate(ledTask, "led", 2048, nullptr, 1, nullptr);
-}
-
-static void backlightBlink(int n) {
-  for (int i = 0; i < n; i++) {
-    digitalWrite(PIN_LCD_BL, LOW);  delay(70);
-    digitalWrite(PIN_LCD_BL, HIGH); delay(70);
-  }
 }
 
 // Decode one HID input report into raw controller state (bleBtn / bleDir).
@@ -263,6 +288,8 @@ class PairScanCB : public NimBLEScanCallbacks {
                   dev->getName().c_str(), dev->getRSSI(), pad ? "  <- gamepad" : "");
 #endif
     if (!pad) return;
+    if (!dev->isConnectable()) return;               // e.g. a beacon / a pad not in pairing mode
+    Serial.printf("BLE: gamepad found: %s \"%s\" - connecting\n", dev->getAddress().toString().c_str(), dev->getName().c_str());
     bleTarget = dev->getAddress();
     pairState = PAIR_CONNECT;                        // loop() does the connect
     NimBLEDevice::getScan()->stop();
@@ -342,6 +369,8 @@ static void bleForgetLast() {
 
 static void blePairStart() {
   if (pairState != PAIR_IDLE) return;
+  Serial.println("BLE: pairing requested");
+  backlightBlink(1);                                        // instant feedback, before any BLE work
   bleAutoDisabled = false;                                  // user explicitly asked for BLE
   bleFail = "";
   if (!bleInit()) { bleFail = "BLE INIT"; ledSignal(false); backlightBlink(4); return; }
@@ -367,7 +396,6 @@ static void blePairStart() {
     backlightBlink(4);
     return;
   }
-  backlightBlink(2);
 }
 
 // Subscribe to the pad's HID input reports. onlyInput = skip report characteristics that

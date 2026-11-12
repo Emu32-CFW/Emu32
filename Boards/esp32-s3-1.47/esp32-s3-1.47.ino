@@ -528,6 +528,11 @@ static void splash() {
   Serial.println("Emu32");
 
   uint32_t t0 = millis();
+  {                                                           // bring the BLE stack up now, while internal RAM is free
+    const bool up = bleInit();
+    Serial.printf("BLE: stack %s at boot (internal free %u)\n", up ? "ready" : "FAILED to start",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  }
   if (bleHaveSaved()) {                                       // auto-reconnect last controller
     auto status = [&](const char *m) {
       int w = strlen(m) * 8 - 2;
