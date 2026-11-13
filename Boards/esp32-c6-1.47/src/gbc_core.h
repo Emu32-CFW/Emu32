@@ -31,7 +31,7 @@
 #pragma GCC optimize ("O3")
 #endif
 #define GBC_MAX_SLOTS     64             // max cached 4 KB ROM pages (the ROM itself always stays on the SD card)
-#define GBC_MIN_SLOTS     10             // 8 mapped pages + 2 spare
+#define GBC_MIN_SLOTS     4              // smaller C6 heaps can run with demand-mapped ROM pages
 #define GBC_HEAP_RESERVE  (48 * 1024)    // heap kept free when sizing the page cache
 #define GBC_DMG_PALETTE   0              // no-boot-ROM palette for DMG games: 0 grey, 1 green, 2 pocket
 #define GBC_COLOR_CORRECT 1              // 1 = mix channels like the real LCD, 0 = raw RGB555
@@ -172,13 +172,17 @@ static uint8_t *gbcPage(uint32_t pg) {
   int v = -1; uint32_t best = 0xFFFFFFFF;
   for (int i = 0; i < gcSlots; i++) {
     if (gcPgTag[i] == 0xFFFF) { v = i; break; }
-    bool mapped = false;                              // pages in the CPU windows are never evicted
-    for (int m = 0; m < 8; m++) if (gcMap[m] == gcPgData[i]) { mapped = true; break; }
-    if (mapped) continue;
+    // ROM-window pointers are cached mappings, not permanent pins. If a
+    // mapped page is evicted, invalidate its window pointer so gbcRdSlow()
+    // reloads it safely on the next access. This allows a small cache to serve
+    // all eight 4 KB CPU ROM windows without requiring eight resident pages.
     if (gcPgStamp[i] <= best) { best = gcPgStamp[i]; v = i; }
   }
-  if (v < 0) v = 0;                                   // cannot happen with >= GBC_MIN_SLOTS slots
-  if (gcPgTag[v] != 0xFFFF) gcPgSlot[gcPgTag[v]] = 0xFF;
+  if (v < 0) v = 0;
+  if (gcPgTag[v] != 0xFFFF) {
+    for (int m = 0; m < 8; m++) if (gcMap[m] == gcPgData[v]) gcMap[m] = nullptr;
+    gcPgSlot[gcPgTag[v]] = 0xFF;
+  }
 
   uint8_t *d = gcPgData[v];
   size_t n = (size_t)sdDiagReadAt(gcRomFile, (uint32_t)pg * 4096UL, d, 4096);

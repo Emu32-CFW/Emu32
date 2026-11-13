@@ -121,3 +121,13 @@ board; connect USB serial at 115200 baud if launch still fails and capture the
   than permanently pinning bank 0. This allows MBC1 mode-1 bank switching to
   work with the smaller cache.
 - This saves one mandatory 16 KB internal-RAM allocation on no-PSRAM boards.
+
+
+## ESP32-C6 Game Boy Color cache adjustment
+
+The GBC ROM cache can now start with four 4 KB pages instead of requiring
+ten. ROM pages referenced by the CPU's two cartridge windows are no longer
+permanently pinned: eviction invalidates any affected window pointers, and
+the existing slow-read path reloads the requested page from SD on demand.
+This trades some SD/cache performance for lower internal-RAM requirements
+on ESP32-C6 boards without PSRAM.
