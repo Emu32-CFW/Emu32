@@ -21,6 +21,17 @@ static bool               bleInited = false;
 // brownout). While set, the saved pad is NOT auto-reconnected (startup or menus), so a fault in
 // the BLE reconnect path cannot reboot the device forever. Pressing BOOT to pair clears it.
 static bool               bleAutoDisabled = false;
+// Boot-loop breaker for the BLE *stack itself*. A crash anywhere else must not stop the stack from
+// starting at boot: if it is skipped, the first BOOT press happens after a game/menu has taken the
+// internal RAM and pairing fails with "not enough internal RAM". So the stack is always started at
+// boot, unless the previous boot died *inside* NimBLEDevice::init() (marker survives a soft reset).
+#define BLE_GUARD_MAGIC 0xB1E0B1E0u
+static RTC_NOINIT_ATTR uint32_t bleInitGuard;
+static bool bleBootInitAllowed() {
+  if (esp_reset_reason() == ESP_RST_POWERON) bleInitGuard = 0;        // RTC RAM is garbage after power-on
+  if (bleInitGuard == BLE_GUARD_MAGIC) { bleInitGuard = 0; return false; }
+  return true;
+}
 static NimBLEAddress      bleTarget;
 static NimBLEClient      *bleClient = nullptr;
 
@@ -328,7 +339,10 @@ static bool bleInit() {
   Serial.printf("BLE: init start (internal free %u, largest block %u)\n", (unsigned)fr, (unsigned)lb);
   Serial.flush();
   if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE"); return false; }   // would panic -> reboot
-  if (!NimBLEDevice::init("Emu32")) {
+  bleInitGuard = BLE_GUARD_MAGIC;                        // cleared again as soon as init() returns
+  const bool initOk = NimBLEDevice::init("Emu32");
+  bleInitGuard = 0;
+  if (!initOk) {
     Serial.printf("BLE: init failed (free heap %u)\n", (unsigned)ESP.getFreeHeap());
     return false;
   }
@@ -377,7 +391,7 @@ static void bleForgetLast() {
 // Pairing setup runs outside the Arduino loop. Some NimBLE operations (especially
 // disconnect/scan startup) can wait on the host task; doing them in readPad() made
 // the whole UI appear frozen immediately after "pairing requested".
-static void blePairWorker(void *) {
+static void blePairRun() {
   Serial.println("BLE: pairing worker started"); Serial.flush();
   bleAutoDisabled = false;
   bleFail = "";
@@ -388,7 +402,6 @@ static void blePairWorker(void *) {
     Serial.println("BLE: initialization unavailable");
     pairState = PAIR_IDLE;
     ledSignal(false); backlightBlink(4);
-    vTaskDelete(nullptr);
     return;
   }
   Serial.println("BLE: stack ready"); Serial.flush();
@@ -417,7 +430,6 @@ static void blePairWorker(void *) {
     Serial.println("BLE: scan object unavailable");
     pairState = PAIR_IDLE;
     ledSignal(false); backlightBlink(4);
-    vTaskDelete(nullptr);
     return;
   }
   if (scan->isScanning()) {
@@ -439,7 +451,25 @@ static void blePairWorker(void *) {
   } else {
     Serial.println("BLE: scan started successfully"); Serial.flush();
   }
-  vTaskDelete(nullptr);
+}
+
+// The worker is a permanent task whose stack and TCB live in .bss. A running emulator core can
+// leave only ~1 KB of internal heap, so allocating a task stack at BOOT-press time fails. This
+// task is created once at boot (before any core grabs RAM) and just sleeps until notified.
+static TaskHandle_t   blePairTask = nullptr;
+static StaticTask_t   blePairTcb;
+static StackType_t    blePairStack[4096] __attribute__((aligned(16)));
+static void blePairWorker(void *) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    blePairRun();
+  }
+}
+static void blePairTaskInit() {
+  if (blePairTask) return;
+  blePairTask = xTaskCreateStatic(blePairWorker, "ble_pair", sizeof(blePairStack), nullptr, 2,
+                                  blePairStack, &blePairTcb);
+  Serial.println(blePairTask ? "BLE: pairing worker reserved" : "BLE: pairing worker reservation FAILED");
 }
 
 static void blePairStart() {
@@ -447,18 +477,18 @@ static void blePairStart() {
   Serial.println("BLE: pairing requested"); Serial.flush();
   backlightBlink(1);
   pairState = PAIR_STARTING; // block auto-reconnect before the worker is scheduled
-  // Keep the worker stack modest: task stacks must come from internal RAM on ESP32-S3.
-  // 4096 bytes is sufficient for this worker and leaves more contiguous heap for NimBLE.
-  Serial.printf("BLE: pairing task allocation (free internal %u, largest block %u)\\n",
-                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-  BaseType_t created = xTaskCreate(blePairWorker, "ble_pair", 4096, nullptr, 2, nullptr);
-  if (created != pdPASS) {
+  if (!blePairTask) blePairTaskInit();                   // normally done in setup()
+  if (!blePairTask) {
     pairState = PAIR_IDLE;
     bleFail = "PAIR TASK";
-    Serial.println("BLE: could not create pairing task (internal RAM low)");
+    Serial.println("BLE: pairing worker not available");
     ledSignal(false); backlightBlink(4);
+    return;
   }
+  Serial.printf("BLE: waking pairing worker (free internal %u, largest block %u)\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  xTaskNotifyGive(blePairTask);
 }
 // Subscribe to the pad's HID input reports. onlyInput = skip report characteristics that
 // are declared as output/feature in their Report Reference descriptor.

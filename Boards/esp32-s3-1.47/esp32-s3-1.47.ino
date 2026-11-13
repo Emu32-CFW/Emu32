@@ -859,11 +859,16 @@ void setup() {
   Serial.println("SD: initializing folders");
   sdInitFolders();                              // mount SD card before BLE/audio startup
   memLog("after SD mount (before BLE)");
-  if (!bleAutoDisabled) {
+  // Always bring the stack up here, even after a crash reset: only the saved-pad auto-reconnect is
+  // suppressed by bleAutoDisabled. Starting it later (BOOT press) finds the internal RAM already taken.
+  if (bleBootInitAllowed()) {
     const bool up = bleInit();
     Serial.printf("BLE: stack %s after SD mount\n", up ? "ready" : "FAILED to start");
+  } else {
+    Serial.println("BLE: previous boot crashed inside BLE init - stack not started at boot");
   }
   memLog("after BLE");
+  blePairTaskInit();                            // reserve the pairing worker before any core takes RAM
   settingsLoad();
   Serial.println("SD: initialization finished");
   memLog("after SD");

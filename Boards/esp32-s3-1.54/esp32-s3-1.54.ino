@@ -979,12 +979,18 @@ void setup() {
   // radio stack can no longer freeze the boot screen.
   memLog("before BLE");
   bootStage("BLE...");
-  if (!bleAutoDisabled) {
+  // Always bring the stack up here, even after a crash reset: only the saved-pad auto-reconnect is
+  // suppressed by bleAutoDisabled. Starting it later (BOOT press) finds the internal RAM already taken.
+  if (bleBootInitAllowed()) {
     const bool up = bleInit();
     Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
     bootStage(up ? "BLE OK" : "BLE OFF (CONTINUING)");
+  } else {
+    Serial.println("BLE: previous boot crashed inside BLE init - stack not started at boot");
+    bootStage("BLE OFF (CRASH)");
   }
   memLog("after BLE");
+  blePairTaskInit();                            // reserve the pairing worker before any core takes RAM
 
   // Audio (ES8311 over I2C + I2S). A missing/slow codec only costs a few retries and never blocks the screen.
   // DIAG: set to 1 to boot without touching the audio codec / I2S.
