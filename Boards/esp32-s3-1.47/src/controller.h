@@ -10,7 +10,7 @@
 #define BOOT_DEBUG      0        // set to 1: print the raw BOOT pin level whenever it changes (serial 115200)
 #define BLE_DEBUG       0        // set to 1 temporarily to diagnose BLE pairing/HID reports
 
-enum PairState : uint8_t { PAIR_IDLE, PAIR_SCAN, PAIR_CONNECT };
+enum PairState : uint8_t { PAIR_IDLE, PAIR_STARTING, PAIR_SCAN, PAIR_CONNECT };
 static volatile PairState pairState = PAIR_IDLE;
 static volatile bool      bleRT  = false;  // right trigger pulled (analog trigger thresholded)
 static volatile uint16_t  bleBtn = 0;      // raw Xbox button bits from the last HID report
@@ -374,39 +374,87 @@ static void bleForgetLast() {
   p.end();
 }
 
-static void blePairStart() {
-  if (pairState != PAIR_IDLE) return;
-  Serial.println("BLE: pairing requested");
-  backlightBlink(1);                                        // instant feedback, before any BLE work
-  bleAutoDisabled = false;                                  // user explicitly asked for BLE
+// Pairing setup runs outside the Arduino loop. Some NimBLE operations (especially
+// disconnect/scan startup) can wait on the host task; doing them in readPad() made
+// the whole UI appear frozen immediately after "pairing requested".
+static void blePairWorker(void *) {
+  Serial.println("BLE: pairing worker started"); Serial.flush();
+  bleAutoDisabled = false;
   bleFail = "";
-  if (!bleInit()) { bleFail = "BLE INIT"; ledSignal(false); backlightBlink(4); return; }
-  if (bleClient && bleClient->isConnected()) bleClient->disconnect();
-  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0;
-  Serial.println("BLE: clearing bonds"); Serial.flush();
-  NimBLEDevice::deleteAllBonds();                          // stale keys make re-pairing fail
-  bleForgetLast();                                         // old controller no longer bonded
-  Serial.printf("BLE: scanning - put the controller in pairing mode (heap %u)\n",
-                (unsigned)ESP.getFreeHeap());
-  Serial.println("BLE: starting scan"); Serial.flush();
+
+  Serial.println("BLE: checking stack"); Serial.flush();
+  if (!bleInit()) {
+    bleFail = "BLE INIT";
+    Serial.println("BLE: initialization unavailable");
+    pairState = PAIR_IDLE;
+    ledSignal(false); backlightBlink(4);
+    vTaskDelete(nullptr);
+    return;
+  }
+  Serial.println("BLE: stack ready"); Serial.flush();
+
+  // Disconnect an existing connection before scanning, but keep its bond keys.
+  // Deleting every bond on each pairing attempt can break other saved peripherals
+  // and is not required to discover a new HID controller.
+  if (bleClient) {
+    Serial.println("BLE: checking previous client"); Serial.flush();
+    if (bleClient->isConnected()) {
+      Serial.println("BLE: disconnecting previous controller"); Serial.flush();
+      bleClient->disconnect();
+      Serial.println("BLE: previous controller disconnected"); Serial.flush();
+    }
+  }
+  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0; bleHatMode = -1;
+  bleForgetLast();
+
+  Serial.printf("BLE: preparing scan (heap %u, internal %u)\n",
+                (unsigned)ESP.getFreeHeap(),
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  Serial.flush();
   NimBLEScan *scan = NimBLEDevice::getScan();
-  if (scan->isScanning()) scan->stop();
+  if (!scan) {
+    bleFail = "NO SCAN";
+    Serial.println("BLE: scan object unavailable");
+    pairState = PAIR_IDLE;
+    ledSignal(false); backlightBlink(4);
+    vTaskDelete(nullptr);
+    return;
+  }
+  if (scan->isScanning()) {
+    Serial.println("BLE: stopping previous scan"); Serial.flush();
+    scan->stop();
+  }
   scan->setScanCallbacks(&pairScanCB, false);
   scan->setActiveScan(true);
   scan->setInterval(100);
   scan->setWindow(99);
   bleDeadline = millis() + PAIR_SCAN_MS;
   pairState = PAIR_SCAN;
+  Serial.println("BLE: starting scan now - put controller in pairing mode"); Serial.flush();
   if (!scan->start(PAIR_SCAN_MS, false)) {
     pairState = PAIR_IDLE;
     bleFail = "SCAN START";
     Serial.println("BLE: scan failed to start");
-    ledSignal(false);
-    backlightBlink(4);
-    return;
+    ledSignal(false); backlightBlink(4);
+  } else {
+    Serial.println("BLE: scan started successfully"); Serial.flush();
   }
+  vTaskDelete(nullptr);
 }
 
+static void blePairStart() {
+  if (pairState != PAIR_IDLE) return;
+  Serial.println("BLE: pairing requested"); Serial.flush();
+  backlightBlink(1);
+  pairState = PAIR_STARTING; // block auto-reconnect before the worker is scheduled
+  BaseType_t created = xTaskCreate(blePairWorker, "ble_pair", 6144, nullptr, 2, nullptr);
+  if (created != pdPASS) {
+    pairState = PAIR_IDLE;
+    bleFail = "PAIR TASK";
+    Serial.println("BLE: could not create pairing task (internal RAM low)");
+    ledSignal(false); backlightBlink(4);
+  }
+}
 // Subscribe to the pad's HID input reports. onlyInput = skip report characteristics that
 // are declared as output/feature in their Report Reference descriptor.
 static int bleSubscribeReports(bool onlyInput) {
