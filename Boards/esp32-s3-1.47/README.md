@@ -6,7 +6,7 @@ Port of Emu32 (NES / Game Boy / Game Boy Color / Atari 2600 / Sega Genesis) from
 | Area | C6 build | S3 build |
 |---|---|---|
 | LCD pins | SCLK 7, MOSI 6, CS 14, DC 15, RST 21, BL 22 | SCLK 38, MOSI 39, CS 21, DC 45, RST 40, BL 46 |
-| microSD | SPI (CS 4, shared bus) | **SDMMC** via `SD_MMC` - CLK 16, CMD 15, D0 17 (D1 18, D2 13, D3 14 for 4-bit; from the Touch-LCD-1.47 schematic) |
+| microSD | SPI (CS 4, shared bus) | **SPI** via `SD` on HSPI - CLK 16, MISO 17, MOSI 15, CS 14 |
 | BOOT / pair button | GPIO 9 | GPIO 0 |
 | RGB LED | GPIO 8 | **none** (this board has no RGB LED; GPIO38 is the LCD clock) |
 | Wired buttons | GPIO 1,2,3,10,11,18,19 | none by default (BLE pad). Edit `padPins[]` - see comments for pins to avoid |
@@ -26,7 +26,7 @@ The emulator cores, menus, save states and BLE code are unchanged. The ST7789-st
 - Picture upside down: `LCD_ROT_DEFAULT` is already 2 (correct for this board); set it to `0` to flip 180 degrees.
 - Colours look negative: set `LCD_INVERT` to `1`. Red and blue swapped: toggle the 0x08 (BGR) bit in `lcdMadctl[]`.
 - Picture glitches / noise: lower `LCD_SPI_HZ` (default is already 40 MHz; try 20000000).
-- "NO SD CARD": make sure the card is FAT32 and fully inserted. The Touch-LCD-1.47 uses CLK GPIO16, CMD GPIO15, D0 GPIO17; the 4-bit pins are D1 GPIO18, D2 GPIO13, D3 GPIO14. The firmware starts at 20 MHz in 1-bit mode for reliability. Once stable, set `SD_1BIT 0` for the faster 4-bit bus.
+- "NO SD CARD": make sure the card is FAT32 and fully inserted. The Touch-LCD-1.47 uses CLK GPIO16, CMD GPIO15, D0 GPIO17; the 4-bit pins are D1 GPIO18, D2 GPIO13, D3 GPIO14. The firmware uses SPI mode on the slot pins (CLK=GPIO16, MISO=GPIO17, MOSI=GPIO15, CS=GPIO14) at 10 MHz.
 - "NOT ENOUGH RAM": make sure Tools > PSRAM is **OPI PSRAM**. The serial monitor prints `PSRAM: ... free` and `Memory before ROM load` at boot/launch; send those lines if it still happens.
 - Can't flash: hold BOOT, tap RESET, release BOOT.
 - Backlight stays dark / blank screen: this firmware is for the **ESP32-S3-Touch-LCD-1.47** (JD9853 LCD + AXS5106L touch). The non-touch ESP32-S3-LCD-1.47 and the 1.47B use a different pin map and are not covered.
@@ -162,3 +162,12 @@ Memory: about 136 KB for 68K RAM + VRAM + Z80 RAM (internal RAM first, PSRAM fal
 Status: built and checked on a PC with stub Arduino headers using a hand-assembled test ROM (CPU arithmetic and
 VDP plane rendering verified). It has NOT been compiled in the Arduino IDE or run on the board, and no commercial
 ROMs were available to test, so expect to tune timing and fix compatibility bugs on real hardware.
+
+
+### microSD transport (DMA allocation workaround)
+
+The microSD slot is accessed in **SPI mode** on the secondary SPI host, rather than
+through SDMMC. Pin mapping is CLK=GPIO16, MISO/DAT0=GPIO17, MOSI/CMD=GPIO15,
+CS/DAT3=GPIO14 at 10 MHz. This bypasses the SDMMC driver's DMA-buffer allocation
+path, which reported `allocate_dma_buf: not enough mem (0x101)` on ESP32-S3.
+The LCD remains on the default SPI host.

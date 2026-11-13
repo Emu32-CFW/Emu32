@@ -11,7 +11,7 @@ Pin map (LCD pins from Waveshare's factory demo BSP for the ESP32-S3-LCD-1.54 / 
 | LCD SCLK / MOSI | 38 / 39 |
 | LCD DC / CS / RST | 45 / 21 / 40 |
 | LCD backlight (active HIGH) | 46 |
-| microSD (SDMMC) CLK / CMD / D0 / D1 / D2 / D3 | 16 / 15 / 17 / 18 / 13 / 14 |
+| microSD socket CLK / CMD / D0 / D1 / D2 / D3 (SPI uses CLK/CMD/D0/D3) | 16 / 15 / 17 / 18 / 13 / 14 |
 | I2C (codecs, IMU, touch) SDA / SCL | 42 / 41 |
 | I2S MCLK / BCLK / LRCK / DIN / DOUT, amp enable | 8 / 9 / 10 / 11 / 12, 7 |
 | BOOT button | 0 |
@@ -24,7 +24,7 @@ Flipped orientations use an 80-pixel window offset because the panel is 240x240 
 | Area | C6 build | S3 build |
 |---|---|---|
 | LCD pins | SCLK 7, MOSI 6, CS 14, DC 15, RST 21, BL 22 | SCLK 38, MOSI 39, CS 21, DC 45, RST 40, BL 46 |
-| microSD | SPI (CS 4, shared bus) | **SDMMC** via `SD_MMC` - CLK 16, CMD 15, D0 17 (D1 18, D2 13, D3 14) |
+| microSD | SPI (CS 4, shared bus) | **SPI** via `SD` on HSPI - CLK 16, MISO 17, MOSI 15, CS 14 |
 | BOOT / pair button | GPIO 9 | GPIO 0 |
 | RGB LED | GPIO 8 | **none** (this board has no RGB LED; the LCD uses GPIO38/39/40/45/46/21) |
 | Wired buttons | GPIO 1,2,3,10,11,18,19 | none by default (BLE pad). Edit `padPins[]` - see comments for pins to avoid |
@@ -54,7 +54,7 @@ Earlier builds initialised audio (I2C/I2S codec), the BLE stack and the PWR-butt
 - Picture orientation: adjust `LCD_ROT_DEFAULT` in the sketch (0–3) if the image is rotated.
 - Colours look negative: set `LCD_INVERT` to `0`. Red and blue swapped: set the 0x08 (BGR) bit in `lcdMadctl[]`. Set `LCD_COLOR_TEST` to `1` to show labelled colour bars at boot.
 - Picture glitches / noise: lower `LCD_SPI_HZ` (default is already 40 MHz; try 20000000).
-- "NO SD CARD": make sure the card is FAT32 and fully inserted. The firmware uses the 4-bit bus at 20 MHz (same as Waveshare's SD example). If the mount times out (error 0x107), reseat the card, try another FAT32 card, or set `SD_1BIT 1`.
+- "NO SD CARD": make sure the card is FAT32 and fully inserted. The firmware uses SPI mode on the slot pins (CLK=GPIO16, MISO=GPIO17, MOSI=GPIO15, CS=GPIO14) at 10 MHz. Reseat the card and verify FAT32 if mounting fails.
 - "NOT ENOUGH RAM": make sure Tools > PSRAM is **OPI PSRAM**. The serial monitor prints `PSRAM: ... free` and `Memory before ROM load` at boot/launch; send those lines if it still happens.
 - Can't flash: hold BOOT, tap RESET, release BOOT.
 - Black screen: the LCD must be on SCLK 38, MOSI 39, DC 45, RST 40, CS 21, BL 46 (see the pin table above). Note: the 04_gfx_helloworld example on Waveshare's S3 wiki page uses GPIO1-5, which are the ESP32-C6 board's pins, not this board's. Open the serial monitor at 115200 baud; you should see `LCD: initialized`. GPIO 41/42 are the codec I2C bus, not the LCD.
@@ -222,3 +222,12 @@ ESP32-S3-LCD-1.54 revision before flashing.
 
 ## Pairing feedback (no status LED on this board)
 This board has no RGB LED, so pairing is shown on the screen: the backlight flashes once when BOOT is pressed, keeps dipping every half second while scanning/connecting, flashes once when the pad is paired and four times when pairing fails. Serial (115200) logs every step (`BLE: pairing requested`, `BLE: gamepad found ...`, `BLE: link encrypted`). Put the Xbox pad in pairing mode first (hold the sync button on top until the Xbox logo flashes fast).
+
+
+### microSD transport (DMA allocation workaround)
+
+The microSD slot is accessed in **SPI mode** on the secondary SPI host, rather than
+through SDMMC. Pin mapping is CLK=GPIO16, MISO/DAT0=GPIO17, MOSI/CMD=GPIO15,
+CS/DAT3=GPIO14 at 10 MHz. This bypasses the SDMMC driver's DMA-buffer allocation
+path, which reported `allocate_dma_buf: not enough mem (0x101)` on ESP32-S3.
+The LCD remains on the default SPI host.

@@ -1044,7 +1044,7 @@ static void a26Reset() {
 
 static bool a26Load(const char *path) {
   a26::freeAll();
-  a26::romFile = SD_MMC.open(path, FILE_READ);
+  a26::romFile = SD.open(path, FILE_READ);
   if (!a26::romFile || a26::romFile.isDirectory()) {
     a26::freeAll();
     strlcpy(loadErr1, "ROM NOT FOUND", sizeof(loadErr1)); strlcpy(loadErr2, "CHECK SD CARD", sizeof(loadErr2));

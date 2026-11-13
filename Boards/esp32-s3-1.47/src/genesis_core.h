@@ -1160,7 +1160,7 @@ static void genFrame(bool draw) { gen::frame(draw); }
 
 static bool genLoad(const char *path) {
   gen::freeAll();
-  gen::romFile = SD_MMC.open(path, FILE_READ);
+  gen::romFile = SD.open(path, FILE_READ);
   if (!gen::romFile || gen::romFile.isDirectory()) {
     gen::freeAll();
     strlcpy(loadErr1, "ROM NOT FOUND", sizeof(loadErr1)); strlcpy(loadErr2, "CHECK SD CARD", sizeof(loadErr2));

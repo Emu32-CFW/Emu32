@@ -42,7 +42,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <FS.h>
-#include <SD_MMC.h>        // this board wires the microSD slot to the SDMMC peripheral, not SPI
+#include <SD.h>            // use SPI-mode SD access to avoid SDMMC DMA-buffer allocation failures
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <limits.h>
@@ -72,15 +72,17 @@
 #define PIN_LCD_DC    45
 #define PIN_LCD_RST   40         // schematic: LCD_RST = IO40 (IO47 is TP_RST, the touch reset)
 #define PIN_LCD_BL    46         // backlight, via an NPN transistor: HIGH = on
-// microSD (SDMMC) - schematic: CLK=16, CMD=15, D0=17, D1=18, D2=13, D3=14
+// microSD socket signals: CLK=16, CMD=15, D0=17, D1=18, D2=13, D3=14; SPI uses CLK/CMD/D0/D3
 #define PIN_SD_CLK    16
 #define PIN_SD_CMD    15
 #define PIN_SD_D0     17
 #define PIN_SD_D1     18
 #define PIN_SD_D2     13
 #define PIN_SD_D3     14
-#define SD_1BIT       1          // Start with the more tolerant 1-bit bus.
-#define SD_FREQ_KHZ   20000      // Conservative clock for reliable initial card detection.
+// SD uses the second SPI host; the display keeps the default SPI host.
+static SPIClass sdSPI(HSPI);
+static bool sdSPIStarted = false;
+#define SD_FREQ_HZ   10000000UL  // conservative 10 MHz SPI clock; avoids SDMMC DMA transfers
 #define LCD_SPI_HZ    40000000   // 40 MHz is plenty for the emulator; raise to 80000000 only if you want to experiment
 #define LCD_COLOR_TEST 0         // 1 = show labelled colour bars for 4 s at boot (set 0 once colours are right)
 #define LCD_INVERT    0          // colour inversion: leave 0 unless colours look negative
@@ -134,8 +136,8 @@ static bool    inGame = false;
 #include "src/controller.h"
 
 #include "src/sd_rom.h"
-#define EMU32_SD_FS SD_MMC  // shared SD-card filesystem for BIOS and box art
-#define SHOT_FS SD_MMC            // screenshot.h writes PNGs through this filesystem
+#define EMU32_SD_FS SD  // shared SD-card filesystem for BIOS and box art
+#define SHOT_FS SD            // screenshot.h writes PNGs through this filesystem
 #include "src/screenshot.h"  // must come after sd_rom.h / controller.h and before the cores
 #include "src/bios.h"
 // PNGdec must be included from the .ino itself: the Arduino IDE only adds a
@@ -144,7 +146,7 @@ static bool    inGame = false;
 #include <PNGdec.h>
 #define EMU32_HAS_PNGDEC 1
 #include "src/box_art.h"
-#define EMU32_SETTINGS_FS SD_MMC
+#define EMU32_SETTINGS_FS SD
 static void settingsMenu();
 static void settingsLoad();
 static void settingsSave();
@@ -603,7 +605,7 @@ static void startGame(bool toMainMenu) {
     char path[ROM_NAME_LEN + 16];
     if (launchRecent) {
       strlcpy(path, selectedPath, sizeof(path));
-      if (!SD_MMC.exists(path)) {
+      if (!SD.exists(path)) {
         showMessage("RECENT GAME MISSING", "CHECK SD CARD", col565(110, 0, 0));
         delay(1800); inList = false; continue;
       }
@@ -815,9 +817,9 @@ void setup() {
   for (int i = 0; i < 8; i++) if (padPins[i] >= 0) pinMode(padPins[i], INPUT_PULLUP);
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
-  // SDMMC is mounted before BLE so its DMA buffers get first access to internal RAM.
-  // Bring up the display before touching SDMMC/BLE or allocating emulator
-  // resources. If the card is absent or SDMMC initialization fails, the user
+  // The SD card is mounted before BLE/audio; SPI mode avoids SDMMC DMA-buffer allocation.
+  // Bring up the display before touching the SD card/BLE or allocating emulator
+  // resources. If the card is absent or SPI initialization fails, the user
   // still gets a visible screen instead of a black backlight/display.
   SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, -1);
   Serial.printf("Memory at boot: internal free=%u, PSRAM %s (%u bytes free)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -855,7 +857,7 @@ void setup() {
   splash();
 
   Serial.println("SD: initializing folders");
-  sdInitFolders();                              // reserve SDMMC DMA buffers before BLE allocation
+  sdInitFolders();                              // mount SD card before BLE/audio startup
   memLog("after SD mount (before BLE)");
   if (!bleAutoDisabled) {
     const bool up = bleInit();

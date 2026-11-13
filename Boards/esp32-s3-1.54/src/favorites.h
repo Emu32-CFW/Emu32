@@ -14,18 +14,18 @@ static void favoriteLoad() {
   favoriteCount = 0;
   favoriteLoadSafe = false;
   if (!sdMount()) return;
-  File f = SD_MMC.open("/system/favorites.txt", FILE_READ);
+  File f = SD.open("/system/favorites.txt", FILE_READ);
   // A power loss during the temp-file rename can leave only the backup.
   // Restore it before giving up so the user does not lose saved entries.
-  if (!f && SD_MMC.exists("/system/favorites.bak")) {
-    if (SD_MMC.rename("/system/favorites.bak", "/system/favorites.txt"))
-      f = SD_MMC.open("/system/favorites.txt", FILE_READ);
-    if (!f) f = SD_MMC.open("/system/favorites.bak", FILE_READ);
+  if (!f && SD.exists("/system/favorites.bak")) {
+    if (SD.rename("/system/favorites.bak", "/system/favorites.txt"))
+      f = SD.open("/system/favorites.txt", FILE_READ);
+    if (!f) f = SD.open("/system/favorites.bak", FILE_READ);
   }
   if (!f) {
     // An absent file means a new/empty favorites list; an existing but
     // unopenable file is an I/O failure and must block writes.
-    if (!SD_MMC.exists("/system/favorites.txt") && !SD_MMC.exists("/system/favorites.bak"))
+    if (!SD.exists("/system/favorites.txt") && !SD.exists("/system/favorites.bak"))
       favoriteLoadSafe = true;
     return;
   }
@@ -101,17 +101,17 @@ static void favoriteLoad() {
 
 static bool favoriteSave() {
   if (!favoriteLoadSafe || !sdMount()) return false;
-  SD_MMC.mkdir("/system");
+  SD.mkdir("/system");
   const char *tmp = "/system/favorites.tmp";
   const char *dst = "/system/favorites.txt";
   const char *bak = "/system/favorites.bak";
-  // FILE_WRITE may append on Arduino SD_MMC. Do not continue if a stale
+  // FILE_WRITE may append on Arduino SD. Do not continue if a stale
   // temporary file cannot be removed; otherwise old entries can be retained.
-  if (SD_MMC.exists(tmp) && !SD_MMC.remove(tmp)) {
+  if (SD.exists(tmp) && !SD.remove(tmp)) {
     Serial.println("FAVORITES: cannot clear temporary file");
     return false;
   }
-  File f = SD_MMC.open(tmp, FILE_WRITE);
+  File f = SD.open(tmp, FILE_WRITE);
   if (!f) return false;
   bool written = true;
   for (int i=0; i<favoriteCount; ++i) {
@@ -120,29 +120,29 @@ static bool favoriteSave() {
   }
   f.flush();
   f.close();
-  if (!written) { SD_MMC.remove(tmp); return false; }
-  const bool hadOld = SD_MMC.exists(dst);
+  if (!written) { SD.remove(tmp); return false; }
+  const bool hadOld = SD.exists(dst);
   // Preserve an existing backup if the primary file is missing. It may be
   // the only recoverable copy left by a previous interrupted save.
   const char *bakPrev = "/system/favorites.bak.prev";
-  const bool hadBackup = SD_MMC.exists(bak);
+  const bool hadBackup = SD.exists(bak);
   // Keep the last recovery copy until the current primary is safely moved.
-  SD_MMC.remove(bakPrev);
-  if (hadBackup && !SD_MMC.rename(bak, bakPrev)) { SD_MMC.remove(tmp); return false; }
-  if (hadOld && !SD_MMC.rename(dst, bak)) {
-    if (hadBackup) SD_MMC.rename(bakPrev, bak);
-    SD_MMC.remove(tmp);
+  SD.remove(bakPrev);
+  if (hadBackup && !SD.rename(bak, bakPrev)) { SD.remove(tmp); return false; }
+  if (hadOld && !SD.rename(dst, bak)) {
+    if (hadBackup) SD.rename(bakPrev, bak);
+    SD.remove(tmp);
     return false;
   }
-  if (!SD_MMC.rename(tmp, dst)) {
-    if (hadOld) SD_MMC.rename(bak, dst);
-    if (hadBackup) SD_MMC.rename(bakPrev, bak);
-    SD_MMC.remove(tmp);
+  if (!SD.rename(tmp, dst)) {
+    if (hadOld) SD.rename(bak, dst);
+    if (hadBackup) SD.rename(bakPrev, bak);
+    SD.remove(tmp);
     return false;
   }
   // New primary is installed; only now retire the previous recovery copy.
-  SD_MMC.remove(bakPrev);
-  SD_MMC.remove(bak);
+  SD.remove(bakPrev);
+  SD.remove(bak);
   return true;
 }
 

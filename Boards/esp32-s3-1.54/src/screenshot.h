@@ -12,14 +12,14 @@
 //
 //  File name: /screenshots/<ROM name>_NNN.png  (NNN = first free number)
 //
-//  Needs SHOT_FS defined by the sketch before this header (SD_MMC or SD), and
+//  Needs SHOT_FS defined by the sketch before this header (SD or SD), and
 //  must be included after sd_rom.h / controller.h and BEFORE the core headers.
 // ============================================================================
 #ifndef EMU32_SCREENSHOT_H
 #define EMU32_SCREENSHOT_H
 
 #ifndef SHOT_FS
-#error "Define SHOT_FS (SD_MMC or SD) before including screenshot.h"
+#error "Define SHOT_FS (SD or SD) before including screenshot.h"
 #endif
 
 #include <esp_heap_caps.h>

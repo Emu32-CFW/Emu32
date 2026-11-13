@@ -260,7 +260,7 @@ static bool saveManagerHasSuffix(const char *name, const char *suffix) {
 }
 
 static void saveManagerScanDir(const char *dir, const char *systemLabel) {
-  File folder = SD_MMC.open(dir);
+  File folder = SD.open(dir);
   if (!folder || !folder.isDirectory()) { if (folder) folder.close(); return; }
   for (File f = folder.openNextFile(); f; f = folder.openNextFile()) {
     if (!f.isDirectory()) {
@@ -300,22 +300,22 @@ static bool saveManagerCopyVerified(const char *src, const char *dst) {
 
   // Recover an interrupted prior replacement before starting another one.
   // If dst exists it is the committed version; otherwise preserve the old copy.
-  if (SD_MMC.exists(old)) {
-    if (!SD_MMC.exists(dst)) {
-      if (!SD_MMC.rename(old, dst)) return false;
+  if (SD.exists(old)) {
+    if (!SD.exists(dst)) {
+      if (!SD.rename(old, dst)) return false;
     } else {
-      SD_MMC.remove(old);
+      SD.remove(old);
     }
   }
 
-  File in = SD_MMC.open(src, FILE_READ);
+  File in = SD.open(src, FILE_READ);
   if (!in) return false;
   const size_t expected = in.size();
   // A zero-byte save file is valid (for example, an intentionally empty
   // SRAM file). Copy and verify it like any other file instead of rejecting it.
   if (expected > 256 * 1024) { in.close(); return false; }
-  SD_MMC.remove(tmp);
-  File out = SD_MMC.open(tmp, FILE_WRITE);
+  SD.remove(tmp);
+  File out = SD.open(tmp, FILE_WRITE);
   if (!out) { in.close(); return false; }
   uint8_t buf[512]; size_t copied = 0; bool writeFailed = false;
   while (copied < expected) {
@@ -330,8 +330,8 @@ static bool saveManagerCopyVerified(const char *src, const char *dst) {
   // A matching file length is not enough: same-size corruption during an SD
   // write would otherwise be promoted as a successful save. Compare every
   // copied byte against the source before replacing the destination.
-  File sourceCheck = SD_MMC.open(src, FILE_READ);
-  File verify = SD_MMC.open(tmp, FILE_READ);
+  File sourceCheck = SD.open(src, FILE_READ);
+  File verify = SD.open(tmp, FILE_READ);
   bool ok = copied == expected && sourceCheck && verify &&
             sourceCheck.size() == expected && verify.size() == expected;
   uint8_t sourceBuf[512], verifyBuf[512];
@@ -357,19 +357,19 @@ static bool saveManagerCopyVerified(const char *src, const char *dst) {
     } else {
       sdSaveSetError("SAVE COPY VERIFY FAILED");
     }
-    SD_MMC.remove(tmp); return false;
+    SD.remove(tmp); return false;
   }
 
   // Never delete dst before the replacement is ready. Move it aside, promote
   // the verified temporary file, and roll back if promotion fails.
-  const bool hadDst = SD_MMC.exists(dst);
-  if (hadDst && !SD_MMC.rename(dst, old)) { SD_MMC.remove(tmp); return false; }
-  if (!SD_MMC.rename(tmp, dst)) {
-    if (hadDst) SD_MMC.rename(old, dst);
-    SD_MMC.remove(tmp);
+  const bool hadDst = SD.exists(dst);
+  if (hadDst && !SD.rename(dst, old)) { SD.remove(tmp); return false; }
+  if (!SD.rename(tmp, dst)) {
+    if (hadDst) SD.rename(old, dst);
+    SD.remove(tmp);
     return false;
   }
-  if (hadDst) SD_MMC.remove(old);
+  if (hadDst) SD.remove(old);
   return true;
 }
 
@@ -381,16 +381,16 @@ static bool saveManagerRestoreBackup(const char *path) {
   // Copy the backup to a verified staging file first, so the source backup
   // remains intact until the replacement is safely staged.
   if (!saveManagerCopyVerified(bak, tmp)) return false;
-  SD_MMC.remove(old);
-  const bool hadMain = SD_MMC.exists(path);
-  if (hadMain && !SD_MMC.rename(path, old)) { SD_MMC.remove(tmp); return false; }
-  if (!SD_MMC.rename(tmp, path)) {
-    if (hadMain) SD_MMC.rename(old, path);
-    SD_MMC.remove(tmp); return false;
+  SD.remove(old);
+  const bool hadMain = SD.exists(path);
+  if (hadMain && !SD.rename(path, old)) { SD.remove(tmp); return false; }
+  if (!SD.rename(tmp, path)) {
+    if (hadMain) SD.rename(old, path);
+    SD.remove(tmp); return false;
   }
   // Keep the former primary as the new backup after a successful restore.
-  if (hadMain) { SD_MMC.remove(bak); SD_MMC.rename(old, bak); }
-  else SD_MMC.remove(bak);
+  if (hadMain) { SD.remove(bak); SD.rename(old, bak); }
+  else SD.remove(bak);
   return true;
 }
 
@@ -463,7 +463,7 @@ static void saveManagerActions(int entry) {
       if (sel == 0) {
         ok = saveManagerRestoreBackup(e.path);
       } else if (sel == 1) {
-        if (SD_MMC.exists(e.path)) ok = saveManagerCopyVerified(e.path, bak);
+        if (SD.exists(e.path)) ok = saveManagerCopyVerified(e.path, bak);
       } else {
         // Require an explicit second confirmation before deleting save data.
         int confirm = 1; bool confirmDirty = true; uint8_t confirmPrev = padState;
@@ -495,9 +495,9 @@ static void saveManagerActions(int entry) {
               const int prevPathLen = snprintf(prev, sizeof(prev), "%s.bak.prev", e.path);
               const bool prevPathOk = prevPathLen >= 0 && (size_t)prevPathLen < sizeof(prev);
               bool backupsRemoved = prevPathOk;
-              if (backupsRemoved && SD_MMC.exists(prev) && !SD_MMC.remove(prev)) backupsRemoved = false;
-              if (backupsRemoved && SD_MMC.exists(bak) && !SD_MMC.remove(bak)) backupsRemoved = false;
-              ok = backupsRemoved && (!SD_MMC.exists(e.path) || SD_MMC.remove(e.path));
+              if (backupsRemoved && SD.exists(prev) && !SD.remove(prev)) backupsRemoved = false;
+              if (backupsRemoved && SD.exists(bak) && !SD.remove(bak)) backupsRemoved = false;
+              ok = backupsRemoved && (!SD.exists(e.path) || SD.remove(e.path));
             } else {
               ok = false;
             }

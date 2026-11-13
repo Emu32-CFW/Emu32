@@ -43,7 +43,7 @@
 #include "src/audio.h" // I2S output backend for the board audio codec/amplifier
 #include <SPI.h>
 #include <FS.h>
-#include <SD_MMC.h>        // this board wires the microSD slot to the SDMMC peripheral, not SPI
+#include <SD.h>            // use SPI-mode SD access to avoid SDMMC DMA-buffer allocation failures
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <limits.h>
@@ -78,16 +78,17 @@
 #define PIN_LCD_DC    45
 #define PIN_LCD_RST   40
 #define PIN_LCD_BL    46         // backlight, active HIGH
-// TF/microSD uses the SDMMC peripheral. 4-bit mode with all six pins matches Waveshare's own
-// 07_sd_card_test example for this board. If the mount still times out, try SD_1BIT 1.
+// microSD is accessed in SPI mode using the slot's standard CLK/CMD/DAT0/DAT3 pins.
 #define PIN_SD_CLK    16
 #define PIN_SD_CMD    15
 #define PIN_SD_D0     17
 #define PIN_SD_D1     18
 #define PIN_SD_D2     13
 #define PIN_SD_D3     14
-#define SD_1BIT       1  // Reduce SDMMC DMA pressure; reliable 1-bit mode for memory-constrained startup
-#define SD_FREQ_KHZ   20000
+// SD uses the second SPI host; the display keeps the default SPI host.
+static SPIClass sdSPI(HSPI);
+static bool sdSPIStarted = false;
+#define SD_FREQ_HZ   10000000UL  // conservative 10 MHz SPI clock; avoids SDMMC DMA transfers
 #define LCD_SPI_HZ    40000000
 #define LCD_COLOR_TEST 0         // set to 1 to show labelled colour bars at boot (checks colour order / inversion)
 #define LCD_INVERT    1          // this IPS ST7789 panel needs INVON (Waveshare examples use ips=true)
@@ -201,8 +202,8 @@ static bool    inGame = false;
 #include "src/controller.h"
 
 #include "src/sd_rom.h"
-#define EMU32_SD_FS SD_MMC  // shared SD-card filesystem for BIOS and box art
-#define SHOT_FS SD_MMC            // screenshot.h writes PNGs through this filesystem
+#define EMU32_SD_FS SD  // shared SD-card filesystem for BIOS and box art
+#define SHOT_FS SD            // screenshot.h writes PNGs through this filesystem
 #include "src/screenshot.h"  // must come after sd_rom.h / controller.h and before the cores
 #include "src/bios.h"
 // PNGdec must be included from the .ino itself: the Arduino IDE only adds a
@@ -211,7 +212,7 @@ static bool    inGame = false;
 #include <PNGdec.h>
 #define EMU32_HAS_PNGDEC 1
 #include "src/box_art.h"
-#define EMU32_SETTINGS_FS SD_MMC
+#define EMU32_SETTINGS_FS SD
 static void settingsMenu();
 static void settingsLoad();
 static void settingsSave();
@@ -676,7 +677,7 @@ static void startGame(bool toMainMenu) {
     char path[ROM_NAME_LEN + 16];
     if (launchRecent) {
       strlcpy(path, selectedPath, sizeof(path));
-      if (!SD_MMC.exists(path)) {
+      if (!SD.exists(path)) {
         showMessage("RECENT GAME MISSING", "CHECK SD CARD", col565(110, 0, 0));
         delay(1800); inList = false; continue;
       }
@@ -933,7 +934,7 @@ void setup() {
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
 
-  // BLE and audio are deliberately deferred until after SDMMC has reserved its DMA buffers.
+  // BLE and audio are deliberately deferred until after the SD card has mounted.
 
   // Monitor PWR independently of the emulator loop, which can be busy in cores.
   // DIAG: set to 1 to test without the power-button task.
@@ -970,7 +971,7 @@ void setup() {
   splash();
 
   Serial.println("SD: initializing folders");
-  sdInitFolders();                              // reserve SDMMC DMA buffers before BLE/audio
+  sdInitFolders();                              // mount SD card before BLE/audio startup
   memLog("after SD mount (before BLE/audio)");
 
   // BLE FIRST (before audio): the controller needs a large block of internal RAM and must be brought up
