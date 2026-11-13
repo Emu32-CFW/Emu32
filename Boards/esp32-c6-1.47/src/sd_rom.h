@@ -790,6 +790,27 @@ static bool reserveRomList(int needed) {
 // index), so adding/removing/sorting files cannot silently move the cursor to
 // a different game. If the selected file disappeared, keep the old index and
 // clamp it to the refreshed list below.
+// Retry the system-directory lookup after validating the mounted root. This
+// handles transient FAT/SD readiness failures without misreporting an existing
+// ROM folder as missing on the first directory-open attempt.
+static File openRomDirectory(const char *path) {
+  if (!path || !path[0]) return File();
+  File dir = SD.open(path);
+  if (dir && dir.isDirectory()) return dir;
+  if (dir) dir.close();
+
+  File root = SD.open("/");
+  const bool rootOk = root && root.isDirectory();
+  if (root) root.close();
+  if (!rootOk) return File();
+
+  delay(20);
+  dir = SD.open(path);
+  if (dir && dir.isDirectory()) return dir;
+  if (dir) dir.close();
+  return File();
+}
+
 static bool scanRoms() {
   // Keep the previous warning if this scan cannot even allocate its initial
   // list: in that case the old ROM list remains active and its warning must
@@ -823,7 +844,7 @@ static bool scanRoms() {
   romCapacity = initialCapacity;
 
   const char *dirPath = sysDir[curSys];
-  File dir = SD.open(dirPath);
+  File dir = openRomDirectory(dirPath);
   if (!dir || !dir.isDirectory()) {
     // A missing system folder is different from a card that vanished. Probe the
     // root once; failure marks the mount stale so the caller can recover.
