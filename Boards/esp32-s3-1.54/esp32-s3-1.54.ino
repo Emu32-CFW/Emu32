@@ -230,6 +230,28 @@ static void settingsSave();
 #include "src/core_manager.h"
 #include "src/audio_synth.h"
 
+// ---------------------------------------------------------------------------------------------
+// UI buffers that used to be static arrays (~74 KB of internal RAM, all cores compiled in at once).
+// They are not speed-critical, so they live in PSRAM; this leaves the internal heap free for the
+// BLE controller and the I2S/I2C audio drivers. Must run before anything touches them. Falls back to
+// internal heap if PSRAM is missing. Without these buffers the matching menus are disabled safely.
+// ---------------------------------------------------------------------------------------------
+static void *uiAlloc(size_t n, const char *what) {
+  void *p = nullptr;
+  if (psramFound()) p = heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p) p = heap_caps_calloc(1, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  Serial.printf("UIBUF: %-14s %6u bytes %s\n", what, (unsigned)n, p ? "ok" : "FAILED");
+  return p;
+}
+static void allocUiBuffers() {
+  favoritePaths = (char (*)[FAVORITE_PATH_LEN])uiAlloc((size_t)FAVORITES_MAX * FAVORITE_PATH_LEN, "favorites");
+  saveManagerEntries = (SaveManagerEntry *)uiAlloc(sizeof(SaveManagerEntry) * SAVE_MANAGER_MAX, "save manager");
+  fileExplorerEntries = (FileExplorerEntry *)uiAlloc(sizeof(FileExplorerEntry) * FILE_EXPLORER_MAX_ENTRIES, "file explorer");
+#if EMU32_HAS_PNGDEC
+  boxArtPixels = (uint16_t *)uiAlloc(sizeof(uint16_t) * BOX_ART_CACHE_W * BOX_ART_CACHE_H, "box art");
+#endif
+}
+
 // ============================================================================
 //  Setup / loop
 // ============================================================================
@@ -912,6 +934,7 @@ void setup() {
   lcdClearTransition(0);
   lcdTextRow(30, 14, "STARTING EMU32", 2, col565(255, 255, 255), 0);
   Serial.println("LCD: initialized");
+  allocUiBuffers();   // PSRAM-backed menu buffers (before any menu/favorites code runs)
   bootStage("LCD OK");
 
   // Some builds boot with a reduced/dynamic CPU clock; the emulators need the full 240 MHz.

@@ -4,7 +4,8 @@
 // Persistent favorites. Full ROM paths are stored one per line in /system/favorites.txt.
 #define FAVORITES_MAX 48
 #define FAVORITE_PATH_LEN ROM_PATH_LEN
-static char favoritePaths[FAVORITES_MAX][FAVORITE_PATH_LEN];
+// Allocated from PSRAM at boot (allocUiBuffers) to keep ~13.5 KB of internal RAM free for BLE.
+static char (*favoritePaths)[FAVORITE_PATH_LEN] = nullptr;
 static int favoriteCount = 0;
 // A failed or incomplete load must never be treated as an empty list: doing so
 // would let the next favorite change overwrite entries still present on the SD card.
@@ -13,6 +14,7 @@ static bool favoriteLoadSafe = false;
 static void favoriteLoad() {
   favoriteCount = 0;
   favoriteLoadSafe = false;
+  if (!favoritePaths) return;      // UI buffer allocation failed: favorites unavailable
   if (!sdMount()) return;
   File f = SD.open("/system/favorites.txt", FILE_READ);
   // A power loss during the temp-file rename can leave only the backup.

@@ -403,7 +403,8 @@ static int romMenu() {
 #define SAVE_MANAGER_MAX 128
 #define SAVE_MANAGER_PATH ROM_PATH_LEN
 struct SaveManagerEntry { char path[SAVE_MANAGER_PATH]; char label[48]; };
-static SaveManagerEntry saveManagerEntries[SAVE_MANAGER_MAX];
+// Allocated from PSRAM at boot (allocUiBuffers): ~42 KB of internal RAM saved.
+static SaveManagerEntry *saveManagerEntries = nullptr;
 static int saveManagerCount = 0;
 static unsigned int saveManagerOverflowCount = 0;
 
@@ -673,6 +674,7 @@ static void saveManagerActions(int entry) {
 }
 
 static void saveManagerMenu() {
+  if (!saveManagerEntries) { showMessage("OUT OF MEMORY", "SAVE MANAGER OFF", col565(110,0,0)); delay(1000); return; }
   if (!sdMount()) { showMessage("NO SD CARD", "CHECK CARD", col565(110,0,0)); delay(1000); return; }
   sdInitFolders();
   saveManagerCount = 0;
@@ -873,7 +875,7 @@ static int gamesSystemMenu() {
 // Browse directories and inspect file names/sizes without modifying card data.
 #define FILE_EXPLORER_MAX_ENTRIES 48
 struct FileExplorerEntry { char name[64]; bool isDir; uint32_t size; };
-static FileExplorerEntry fileExplorerEntries[FILE_EXPLORER_MAX_ENTRIES];
+static FileExplorerEntry *fileExplorerEntries = nullptr;   // allocated in allocUiBuffers()
 static int fileExplorerCount = 0;
 static bool fileExplorerTruncated = false;
 static char fileExplorerPath[192] = "/";
@@ -1028,6 +1030,7 @@ static void fileExplorerFileInfo(const char *path, const char *name, uint32_t si
 }
 
 static void fileExplorerMenu() {
+  if (!fileExplorerEntries) { showMessage("OUT OF MEMORY", "FILE EXPLORER OFF", col565(110,0,0)); delay(1000); return; }
   if (!sdMount()) { showMessage("NO SD CARD", "CHECK CARD", col565(110,0,0)); delay(900); return; }
   strlcpy(fileExplorerPath, "/", sizeof(fileExplorerPath));
   fileExplorerStatus[0] = '\0';

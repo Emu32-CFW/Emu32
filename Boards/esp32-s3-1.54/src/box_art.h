@@ -31,7 +31,7 @@ static uint16_t boxArtScaledLine[320];
 #ifndef BOX_ART_CACHE_H
   #define BOX_ART_CACHE_H 88
 #endif
-static uint16_t boxArtPixels[BOX_ART_CACHE_W * BOX_ART_CACHE_H];
+static uint16_t *boxArtPixels = nullptr;   // allocated from PSRAM in allocUiBuffers() (13.7 KB)
 static char boxArtCachedPath[160];
 static int boxArtCachedMaxW = 0, boxArtCachedMaxH = 0;
 static int boxArtCachedW = 0, boxArtCachedH = 0;
@@ -189,6 +189,7 @@ static bool boxArtResolve(const char *name, char *out, size_t cap) {
 // Draw /imgs/<system>/<ROM filename without extension>.png. The PNG's own
 // aspect ratio is preserved and it is centered inside the preview rectangle.
 static bool boxArtDraw(const char *romName, int x, int y, int maxW, int maxH) {
+  if (!boxArtPixels) return false;   // cache buffer not allocated (see allocUiBuffers)
   const uint16_t panel = col565(22, 30, 46);
   lcdFill(x, y, maxW, maxH, panel);
   if (!romName || curSys >= SYS_COUNT) {

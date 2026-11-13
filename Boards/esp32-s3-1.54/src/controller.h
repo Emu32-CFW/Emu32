@@ -376,6 +376,7 @@ static bool bleInit() {
   if (bleInitGaveUp || bleInitState == 1) return false;  // never start a second init on a stuck stack
   const uint32_t fr = heap_caps_get_free_size(MALLOC_CAP_INTERNAL), lb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   Serial.printf("BLE: init start (internal free %u, largest block %u)\n", (unsigned)fr, (unsigned)lb);
+  if (lb < 30000) { Serial.printf("BLE: largest internal block %u too small - not starting BLE (free %u)\n", (unsigned)lb, (unsigned)fr); return false; }
   if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE - reboot, BLE must start at boot"); return false; }   // would panic -> reboot
 
   bleInitState = 1;

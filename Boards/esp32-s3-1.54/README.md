@@ -231,3 +231,11 @@ through SDMMC. Pin mapping is CLK=GPIO16, MISO/DAT0=GPIO17, MOSI/CMD=GPIO15,
 CS/DAT3=GPIO14 at 10 MHz. This bypasses the SDMMC driver's DMA-buffer allocation
 path, which reported `allocate_dma_buf: not enough mem (0x101)` on ESP32-S3.
 The LCD remains on the default SPI host.
+
+## Internal-RAM fix (BLE init timeout / audio init failure)
+The favorites list, save-manager list, file-explorer list and box-art cache were static arrays (~74 KB) that
+consumed internal RAM even though they are not speed-critical. They are now allocated from PSRAM at boot by
+`allocUiBuffers()` (serial lines `UIBUF: ...`), which leaves the internal heap free for the BLE controller and
+the I2S/I2C audio drivers. `bleInit()` also refuses to start when the largest internal block is below 30 KB
+instead of timing out with a half-built stack. If a buffer cannot be allocated, the matching menu is disabled
+with an OUT OF MEMORY message rather than crashing. Not compiled or run on hardware.
