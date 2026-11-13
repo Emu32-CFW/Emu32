@@ -1213,18 +1213,16 @@ static bool gbcLoad(const char *path) {
   gcRomBanks = sz / 16384;
   gcRomPages = sz / 4096;
 
-  // Reserve the minimum ROM page cache FIRST, before cart RAM / WRAM fragment the heap; top it up afterwards.
-  const int want = gcRomPages < (uint32_t)GBC_MAX_SLOTS ? (int)gcRomPages : GBC_MAX_SLOTS;
-  const int minSlots = gcRomPages < (uint32_t)GBC_MIN_SLOTS ? (int)gcRomPages : GBC_MIN_SLOTS;
+  // Allocate the LARGE blocks first (48 KB WRAM+VRAM, cart RAM, boot page) while the heap is still
+  // contiguous. The ESP32-C6 has no PSRAM and its internal heap is already fragmented by the BLE stack,
+  // so grabbing many 4 KB cache pages first leaves no free 48 KB run and the launch fails with a red
+  // "NOT ENOUGH RAM" screen. The small 4 KB pages fit in the remaining holes afterwards.
   gcSlots = 0;
-  while (gcSlots < minSlots) {
-    uint8_t *p = (uint8_t *)emuAlloc(4096, 0);
-    if (!p) break;
-    gcPgData[gcSlots++] = p;
-  }
-  if (gcSlots < minSlots) { Serial.printf("ROM CACHE: only %d slots; internal free=%u largest=%u psram=%d\n", gcSlots, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (int)psramFound()); return gbcFail("NOT ENOUGH RAM", "ROM CACHE"); }
   gcMem = (uint8_t *)emuAlloc(0x8000 + 0x4000, 0, true);     // 8 WRAM banks + 2 VRAM banks
-  if (!gcMem) return gbcFail("NOT ENOUGH RAM", "GBC MEMORY");
+  if (!gcMem) {
+    Serial.printf("GBC MEMORY: need 49152; internal free=%u largest=%u psram=%d\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (int)psramFound());
+    return gbcFail("NOT ENOUGH RAM", "GBC MEMORY");
+  }
   gcWram = gcMem; gcVram = gcMem + 0x8000; gcVramCur = gcVram;
   if (gcRamAlloc) {
     gcRam = (uint8_t *)emuAlloc(gcRamAlloc, 0, true);
@@ -1234,6 +1232,13 @@ static bool gbcLoad(const char *path) {
     gcBootPage = (uint8_t *)emuAlloc(4096, 0, true);
     if (!gcBootPage) gcBootAvail = false;            // boot ROM is optional: carry on without it
   }
+  // Minimum ROM page cache (small pieces, so they can use fragmented heap).
+  while (gcSlots < minSlots) {
+    uint8_t *p = (uint8_t *)emuAlloc(4096, 0);
+    if (!p) break;
+    gcPgData[gcSlots++] = p;
+  }
+  if (gcSlots < minSlots) { Serial.printf("ROM CACHE: only %d slots; internal free=%u largest=%u psram=%d\n", gcSlots, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (int)psramFound()); return gbcFail("NOT ENOUGH RAM", "ROM CACHE"); }
   while (gcSlots < want) {
     uint8_t *p = (uint8_t *)emuAlloc(4096, GBC_HEAP_RESERVE);
     if (!p) break;
