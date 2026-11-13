@@ -420,7 +420,7 @@ static void blePairRun() {
       Serial.println("BLE: previous controller disconnected"); Serial.flush();
     }
   }
-  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0; bleHatMode = -1;
+  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0;
   bleForgetLast();
 
   Serial.printf("BLE: preparing scan (heap %u, internal %u)\n",
