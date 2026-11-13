@@ -751,10 +751,7 @@ static GBC_FAST void gbcPushBand(int s0) {
     if (!lcdDirty && gcBandHash[bi] == h) return;
     gcBandHash[bi] = h;
   }
-  SPI.beginTransaction(lcdCfg);
-  lcdWindow(GAME_X + (GAME_W - GBC_OUT_W) / 2, GAME_Y + r0, GAME_X + (GAME_W - GBC_OUT_W) / 2 + GBC_OUT_W - 1, GAME_Y + r1 - 1);
-  digitalWrite(PIN_LCD_DC, HIGH);
-  digitalWrite(PIN_LCD_CS, LOW);
+  lcdStreamBegin(GAME_X + (GAME_W - GBC_OUT_W) / 2, GAME_Y + r0, GAME_X + (GAME_W - GBC_OUT_W) / 2 + GBC_OUT_W - 1, GAME_Y + r1 - 1);
   int last = -1;
   for (int r = r0; r < r1; r++) {
     const int s = gcRowMap[r];
@@ -763,11 +760,10 @@ static GBC_FAST void gbcPushBand(int s0) {
       for (int x = 0; x < GBC_OUT_W; x++) outLine[x] = src[gcColMap[x]];
       last = s;
     }
-    SPI.writeBytes((uint8_t *)outLine, GBC_OUT_W * 2);
+    lcdStreamWrite((uint8_t *)outLine, GBC_OUT_W * 2);
     shotRow(r, outLine, GBC_OUT_W);
   }
-  digitalWrite(PIN_LCD_CS, HIGH);
-  SPI.endTransaction();
+  lcdStreamEnd();
 }
 
 static GBC_FAST void gbcPpuEvent() {

@@ -88,7 +88,8 @@
 // SD uses the second SPI host; the display keeps the default SPI host.
 static SPIClass sdSPI(HSPI);
 static bool sdSPIStarted = false;
-#define SD_FREQ_HZ   10000000UL  // conservative 10 MHz SPI clock; avoids SDMMC DMA transfers
+#define SD_FREQ_HZ   20000000UL  // fast SD clock (ROM paging / loading); mount falls back to SD_FREQ_SAFE_HZ if the card refuses it
+#define SD_FREQ_SAFE_HZ 10000000UL  // conservative clock; avoids SDMMC DMA transfers
 #define LCD_SPI_HZ    40000000
 #define LCD_COLOR_TEST 0         // set to 1 to show labelled colour bars at boot (checks colour order / inversion)
 #define LCD_INVERT    1          // this IPS ST7789 panel needs INVON (Waveshare examples use ips=true)

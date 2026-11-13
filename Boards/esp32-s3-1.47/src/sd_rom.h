@@ -375,7 +375,14 @@ static bool sdMount() {
   Serial.printf("SD: mounting in SPI mode CLK=%d MISO=%d MOSI=%d CS=%d freq=%lu Hz\n",
                 PIN_SD_CLK, PIN_SD_D0, PIN_SD_CMD, PIN_SD_D3,
                 (unsigned long)SD_FREQ_HZ);
-  if (!SD.begin(PIN_SD_D3, sdSPI, SD_FREQ_HZ, "/sdcard", 5, false)) {
+  uint32_t sdUsedHz = SD_FREQ_HZ;
+  bool sdBeginOk = SD.begin(PIN_SD_D3, sdSPI, sdUsedHz, "/sdcard", 5, false);
+  if (!sdBeginOk && SD_FREQ_SAFE_HZ < SD_FREQ_HZ) {      // card/wiring refused the fast clock: retry slower
+    Serial.printf("SD: mount at %lu Hz failed, retrying at %lu Hz\n", (unsigned long)SD_FREQ_HZ, (unsigned long)SD_FREQ_SAFE_HZ);
+    sdUsedHz = SD_FREQ_SAFE_HZ;
+    sdBeginOk = SD.begin(PIN_SD_D3, sdSPI, sdUsedHz, "/sdcard", 5, false);
+  }
+  if (!sdBeginOk) {
     Serial.printf("SD: SPI mount failed; internal free=%u largest=%u\n",
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));

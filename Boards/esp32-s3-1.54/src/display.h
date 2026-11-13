@@ -214,3 +214,4 @@ static void fatal(const char *l1, const char *l2) {
   while (true) delay(1000);
 }
 
+#include "lcd_stream.h"   // async LCD push (second core) used by the emulator cores

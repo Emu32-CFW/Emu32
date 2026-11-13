@@ -1004,17 +1004,13 @@ static void renderLine(int y, int outRow) {
 }
 
 static IRAM_ATTR void blit() {
-  SPI.beginTransaction(lcdCfg);
-  lcdWindow(GAME_X, GAME_Y, GAME_X + GAME_W - 1, GAME_Y + GAME_H - 1);
-  digitalWrite(PIN_LCD_DC, HIGH);
-  digitalWrite(PIN_LCD_CS, LOW);
+  lcdStreamBegin(GAME_X, GAME_Y, GAME_X + GAME_W - 1, GAME_Y + GAME_H - 1);
   for (int r = 0; r < GAME_H; r++) {
     const uint16_t *row = fb + r * GAME_W;
-    SPI.writeBytes((uint8_t *)row, GAME_W * 2);
+    lcdStreamWrite((uint8_t *)row, GAME_W * 2);
     shotRow(r, row, GAME_W);
   }
-  digitalWrite(PIN_LCD_CS, HIGH);
-  SPI.endTransaction();
+  lcdStreamEnd();
 }
 
 // ================================================================ lifecycle ===

@@ -821,10 +821,7 @@ static inline uint16_t blend565(uint16_t f, uint16_t b, uint32_t alpha) {
 }
 
 static IRAM_ATTR void blit() {
-  SPI.beginTransaction(lcdCfg);
-  lcdWindow(GAME_X, GAME_Y, GAME_X + GAME_W - 1, GAME_Y + A26_OUT_H - 1);
-  digitalWrite(PIN_LCD_DC, HIGH);
-  digitalWrite(PIN_LCD_CS, LOW);
+  lcdStreamBegin(GAME_X, GAME_Y, GAME_X + GAME_W - 1, GAME_Y + A26_OUT_H - 1);
   for (int r = 0; r < A26_OUT_H; r++) {
     const uint8_t *pa = fb + rowA[r] * 160, *pb = fb + rowB[r] * 160;
     const uint32_t w = rowW[r];
@@ -834,11 +831,10 @@ static IRAM_ATTR void blit() {
       if (w && pa[sx] != pb[sx]) c = blend565(pal[pb[sx]], c, w);
       outLine[x] = (c >> 8) | (c << 8);                             // byte-swapped for the wire
     }
-    SPI.writeBytes((uint8_t *)outLine, GAME_W * 2);
+    lcdStreamWrite((uint8_t *)outLine, GAME_W * 2);
     shotRow(r, outLine, GAME_W);
   }
-  digitalWrite(PIN_LCD_CS, HIGH);
-  SPI.endTransaction();
+  lcdStreamEnd();
 }
 
 // ============================================================================

@@ -171,3 +171,9 @@ through SDMMC. Pin mapping is CLK=GPIO16, MISO/DAT0=GPIO17, MOSI/CMD=GPIO15,
 CS/DAT3=GPIO14 at 10 MHz. This bypasses the SDMMC driver's DMA-buffer allocation
 path, which reported `allocate_dma_buf: not enough mem (0x101)` on ESP32-S3.
 The LCD remains on the default SPI host.
+
+## Performance notes (async LCD push + faster SD)
+- **Async LCD push** (`src/lcd_stream.h`): the cores no longer block on SPI. Each finished line is copied into a 16-slot ring and a worker task on the *other* CPU core sends it to the LCD while emulation continues, so a frame costs max(emulation, transfer) instead of emulation + transfer. The Serial log shows `LCD: async push task on core N` at the first game start. Menus, overlays and `lcdFill` are unchanged (the stream drains before a frame ends). To disable it, add `#define EMU32_LCD_ASYNC 0` above `#include "src/display.h"` in the sketch.
+- **SD clock 20 MHz** (`SD_FREQ_HZ`): faster game loading and ROM page-cache refills. If the card refuses it, the mount automatically retries at `SD_FREQ_SAFE_HZ` (10 MHz). If you get random `ROM READ ERROR`s, set `SD_FREQ_HZ` back to 10000000UL.
+- **Optional, not enabled:** `LCD_SPI_HZ` is still 40 MHz. The S3 can drive many ST7789 panels at 80000000 (halves the transfer time); try it, and go back to 40000000 if the picture shows noise.
+- Send `p` over Serial (115200) to print per-second core/audio frame timings.

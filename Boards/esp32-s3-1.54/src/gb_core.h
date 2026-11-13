@@ -814,10 +814,7 @@ static void gbSaveRam() {
 }
 
 static IRAM_ATTR void gbPush() {
-  SPI.beginTransaction(lcdCfg);
-  lcdWindow(GAME_X + (GAME_W - GB_OUT_W) / 2, GAME_Y, GAME_X + (GAME_W - GB_OUT_W) / 2 + GB_OUT_W - 1, GAME_Y + GB_OUT_H - 1);
-  digitalWrite(PIN_LCD_DC, HIGH);
-  digitalWrite(PIN_LCD_CS, LOW);
+  lcdStreamBegin(GAME_X + (GAME_W - GB_OUT_W) / 2, GAME_Y, GAME_X + (GAME_W - GB_OUT_W) / 2 + GB_OUT_W - 1, GAME_Y + GB_OUT_H - 1);
   int last = -1;
   for (int r = 0; r < GB_OUT_H; r++) {
     const int s = gbRowMap[r];
@@ -826,11 +823,10 @@ static IRAM_ATTR void gbPush() {
       for (int x = 0; x < GB_OUT_W; x++) outLine[x] = gbPal565[src[gbColMap[x]]];
       last = s;
     }
-    SPI.writeBytes((uint8_t *)outLine, GB_OUT_W * 2);
+    lcdStreamWrite((uint8_t *)outLine, GB_OUT_W * 2);
     shotRow(r, outLine, GB_OUT_W);
   }
-  digitalWrite(PIN_LCD_CS, HIGH);
-  SPI.endTransaction();
+  lcdStreamEnd();
 }
 
 static void gbFrame(bool draw) {

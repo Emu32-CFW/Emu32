@@ -82,7 +82,8 @@
 // SD uses the second SPI host; the display keeps the default SPI host.
 static SPIClass sdSPI(HSPI);
 static bool sdSPIStarted = false;
-#define SD_FREQ_HZ   10000000UL  // conservative 10 MHz SPI clock; avoids SDMMC DMA transfers
+#define SD_FREQ_HZ   20000000UL  // fast SD clock (ROM paging / loading); mount falls back to SD_FREQ_SAFE_HZ if the card refuses it
+#define SD_FREQ_SAFE_HZ 10000000UL  // conservative clock; avoids SDMMC DMA transfers
 #define LCD_SPI_HZ    40000000   // 40 MHz is plenty for the emulator; raise to 80000000 only if you want to experiment
 #define LCD_COLOR_TEST 0         // 1 = show labelled colour bars for 4 s at boot (set 0 once colours are right)
 #define LCD_INVERT    0          // colour inversion: leave 0 unless colours look negative

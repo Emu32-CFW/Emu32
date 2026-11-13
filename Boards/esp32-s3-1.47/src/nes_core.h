@@ -303,7 +303,7 @@ static IRAM_ATTR void renderLine(int line, bool draw) {
     if (doOut) {
       uint16_t c = palCol[0];
       for (int x = 0; x < GAME_W; x++) outLine[x] = c;
-      SPI.writeBytes((uint8_t *)outLine, GAME_W * 2);
+      lcdStreamWrite((uint8_t *)outLine, GAME_W * 2);
       shotRowNext(outLine, GAME_W);
     }
     return;
@@ -378,7 +378,7 @@ static IRAM_ATTR void renderLine(int line, bool draw) {
       else pi = (b & 3) ? (b & 0x0F) : 0;
       outLine[x] = palCol[pi];
     }
-    SPI.writeBytes((uint8_t *)outLine, GAME_W * 2);
+    lcdStreamWrite((uint8_t *)outLine, GAME_W * 2);
     shotRowNext(outLine, GAME_W);
   }
 
@@ -735,14 +735,10 @@ static void runFrame(bool draw) {
 
 static void lcdFrameBegin() {
   shotSeqBegin();
-  SPI.beginTransaction(lcdCfg);
-  lcdWindow(GAME_X, GAME_Y, GAME_X + GAME_W - 1, GAME_Y + GAME_H - 1);
-  digitalWrite(PIN_LCD_DC, HIGH);
-  digitalWrite(PIN_LCD_CS, LOW);
+  lcdStreamBegin(GAME_X, GAME_Y, GAME_X + GAME_W - 1, GAME_Y + GAME_H - 1);
 }
 static void lcdFrameEnd() {
-  digitalWrite(PIN_LCD_CS, HIGH);
-  SPI.endTransaction();
+  lcdStreamEnd();
 }
 
 // ============================================================================
