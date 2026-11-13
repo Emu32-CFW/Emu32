@@ -86,7 +86,7 @@
 #define PIN_SD_D1     18
 #define PIN_SD_D2     13
 #define PIN_SD_D3     14
-#define SD_1BIT       0
+#define SD_1BIT       1  // Reduce SDMMC DMA pressure; reliable 1-bit mode for memory-constrained startup
 #define SD_FREQ_KHZ   20000
 #define LCD_SPI_HZ    40000000
 #define LCD_COLOR_TEST 0         // set to 1 to show labelled colour bars at boot (checks colour order / inversion)
@@ -933,37 +933,7 @@ void setup() {
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
 
-  // BLE FIRST (before audio): the controller needs a large block of internal RAM and must be brought up
-  // while the heap is still unfragmented by the I2S/I2C drivers. bleInit() has its own timeout, so a stuck
-  // radio stack can no longer freeze the boot screen.
-  memLog("before BLE");
-  bootStage("BLE...");
-  if (!bleAutoDisabled) {
-    const bool up = bleInit();
-    Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
-    bootStage(up ? "BLE OK" : "BLE OFF (CONTINUING)");
-  }
-  memLog("after BLE");
-
-  // Audio (ES8311 over I2C + I2S). A missing/slow codec only costs a few retries and never blocks the screen.
-  // DIAG: set to 1 to boot without touching the audio codec / I2S.
-#define DIAG_NO_AUDIO 0
-  bootStage("AUDIO...");
-#if DIAG_NO_AUDIO
-  Serial.println("DIAG: audio init skipped");
-#else
-  Wire.setTimeOut(50);                           // never let a dead I2C bus stall boot
-  if (!EmuAudio::begin()) {
-    Serial.printf("WARN: audio init failed (ES8311=%s, I2S=%s)\n",
-                  EmuAudio::isCodecReady() ? "OK" : "NOT FOUND/INIT ERROR",
-                  EmuAudio::isReady() ? "OK" : "FAILED");
-    bootStage("AUDIO OFF (CONTINUING)");
-  } else {
-    Serial.println("ES8311 codec + I2S speaker output ready (startup tone disabled)");
-    bootStage("AUDIO OK");
-  }
-#endif
-
+  // BLE and audio are deliberately deferred until after SDMMC has reserved its DMA buffers.
 
   // Monitor PWR independently of the emulator loop, which can be busy in cores.
   // DIAG: set to 1 to test without the power-button task.
@@ -1000,7 +970,40 @@ void setup() {
   splash();
 
   Serial.println("SD: initializing folders");
-  sdInitFolders();                              // failure is non-fatal; show menu regardless
+  sdInitFolders();                              // reserve SDMMC DMA buffers before BLE/audio
+  memLog("after SD mount (before BLE/audio)");
+
+  // BLE FIRST (before audio): the controller needs a large block of internal RAM and must be brought up
+  // while the heap is still unfragmented by the I2S/I2C drivers. bleInit() has its own timeout, so a stuck
+  // radio stack can no longer freeze the boot screen.
+  memLog("before BLE");
+  bootStage("BLE...");
+  if (!bleAutoDisabled) {
+    const bool up = bleInit();
+    Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
+    bootStage(up ? "BLE OK" : "BLE OFF (CONTINUING)");
+  }
+  memLog("after BLE");
+
+  // Audio (ES8311 over I2C + I2S). A missing/slow codec only costs a few retries and never blocks the screen.
+  // DIAG: set to 1 to boot without touching the audio codec / I2S.
+#define DIAG_NO_AUDIO 0
+  bootStage("AUDIO...");
+#if DIAG_NO_AUDIO
+  Serial.println("DIAG: audio init skipped");
+#else
+  Wire.setTimeOut(50);                           // never let a dead I2C bus stall boot
+  if (!EmuAudio::begin()) {
+    Serial.printf("WARN: audio init failed (ES8311=%s, I2S=%s)\n",
+                  EmuAudio::isCodecReady() ? "OK" : "NOT FOUND/INIT ERROR",
+                  EmuAudio::isReady() ? "OK" : "FAILED");
+    bootStage("AUDIO OFF (CONTINUING)");
+  } else {
+    Serial.println("ES8311 codec + I2S speaker output ready (startup tone disabled)");
+    bootStage("AUDIO OK");
+  }
+#endif
+
   settingsLoad();
   Serial.println("SD: initialization finished");
   memLog("after SD");

@@ -815,13 +815,7 @@ void setup() {
   for (int i = 0; i < 8; i++) if (padPins[i] >= 0) pinMode(padPins[i], INPUT_PULLUP);
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
-  memLog("before BLE");
-  if (!bleAutoDisabled) {                        // start BLE first, while the internal heap is still large
-    const bool up = bleInit();
-    Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
-  }
-  memLog("after BLE");
-
+  // SDMMC is mounted before BLE so its DMA buffers get first access to internal RAM.
   // Bring up the display before touching SDMMC/BLE or allocating emulator
   // resources. If the card is absent or SDMMC initialization fails, the user
   // still gets a visible screen instead of a black backlight/display.
@@ -861,7 +855,13 @@ void setup() {
   splash();
 
   Serial.println("SD: initializing folders");
-  sdInitFolders();                              // failure is non-fatal; show menu regardless
+  sdInitFolders();                              // reserve SDMMC DMA buffers before BLE allocation
+  memLog("after SD mount (before BLE)");
+  if (!bleAutoDisabled) {
+    const bool up = bleInit();
+    Serial.printf("BLE: stack %s after SD mount\n", up ? "ready" : "FAILED to start");
+  }
+  memLog("after BLE");
   settingsLoad();
   Serial.println("SD: initialization finished");
   memLog("after SD");

@@ -374,10 +374,19 @@ static bool sdMount() {
     return false;
   }
 #endif
+  // SDMMC allocates its transfer buffers from DMA-capable INTERNAL RAM, not PSRAM.
+  // Mount before BLE/audio so these buffers can be allocated before those stacks
+  // consume or fragment the small internal heap.
+  Serial.printf("SD: DMA heap before mount: free=%u largest=%u bytes\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
   Serial.printf("SD: mounting on CLK=%d CMD=%d D0=%d bus=%s freq=%u kHz\n",
                 PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0, SD_1BIT ? "1-bit" : "4-bit",
                 (unsigned)SD_FREQ_KHZ);
   if (!SD_MMC.begin("/sdcard", SD_1BIT != 0, false, SD_FREQ_KHZ)) {
+    Serial.printf("SD: mount failed; DMA heap free=%u largest=%u bytes\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
     Serial.println("SD: mount failed; check FAT32 format, card seating, and board pinout");
     strlcpy(loadErr1, "NO SD CARD", sizeof(loadErr1));
     strlcpy(loadErr2, "CHECK FAT32", sizeof(loadErr2));
@@ -817,27 +826,6 @@ static bool reserveRomList(int needed) {
 // index), so adding/removing/sorting files cannot silently move the cursor to
 // a different game. If the selected file disappeared, keep the old index and
 // clamp it to the refreshed list below.
-// Retry the system-directory lookup after validating the mounted root. This
-// handles transient FAT/SD readiness failures without misreporting an existing
-// ROM folder as missing on the first directory-open attempt.
-static File openRomDirectory(const char *path) {
-  if (!path || !path[0]) return File();
-  File dir = SD_MMC.open(path);
-  if (dir && dir.isDirectory()) return dir;
-  if (dir) dir.close();
-
-  File root = SD_MMC.open("/");
-  const bool rootOk = root && root.isDirectory();
-  if (root) root.close();
-  if (!rootOk) return File();
-
-  delay(20);
-  dir = SD_MMC.open(path);
-  if (dir && dir.isDirectory()) return dir;
-  if (dir) dir.close();
-  return File();
-}
-
 static bool scanRoms() {
   // Keep the previous warning if this scan cannot even allocate its initial
   // list: in that case the old ROM list remains active and its warning must
@@ -871,7 +859,7 @@ static bool scanRoms() {
   romCapacity = initialCapacity;
 
   const char *dirPath = sysDir[curSys];
-  File dir = openRomDirectory(dirPath);
+  File dir = SD_MMC.open(dirPath);
   if (!dir || !dir.isDirectory()) {
     // A missing system folder is different from a card that vanished. Probe the
     // root once; failure marks the mount stale so the caller can recover.
