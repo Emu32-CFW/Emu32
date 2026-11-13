@@ -493,7 +493,12 @@ static void blePairStart() {
   Serial.println("BLE: pairing requested"); Serial.flush();
   backlightBlink(1);
   pairState = PAIR_STARTING; // block auto-reconnect before the worker is scheduled
-  BaseType_t created = xTaskCreate(blePairWorker, "ble_pair", 6144, nullptr, 2, nullptr);
+  // Keep the worker stack modest: task stacks must come from internal RAM on ESP32-S3.
+  // 4096 bytes is sufficient for this worker and leaves more contiguous heap for NimBLE.
+  Serial.printf("BLE: pairing task allocation (free internal %u, largest block %u)\\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  BaseType_t created = xTaskCreate(blePairWorker, "ble_pair", 4096, nullptr, 2, nullptr);
   if (created != pdPASS) {
     pairState = PAIR_IDLE;
     bleFail = "PAIR TASK";
