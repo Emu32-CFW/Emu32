@@ -65,6 +65,7 @@ static File     gcRomFile;
 static uint32_t gcRomBanks = 2, gcRomPages = 8;
 static uint8_t  gcMbc = 0;                      // 0 ROM, 1 MBC1, 2 MBC2, 3 MBC3, 5 MBC5, 6 HuC1, 7 MMM01-compatible
 static bool     gcBattery = false, gcHasRtc = false, gcHdrCgb = false, gcMbc5Rumble = false;
+static bool     gcHdrCgbOnly = false;
 static uint8_t *gcRam = nullptr;
 static uint32_t gcRamAlloc = 0, gcRamPhysSize = 0, gcSavSize = 0;
 static bool     gcRomReadError = false;
@@ -465,7 +466,15 @@ static GBC_FAST void gbcIoWr(uint8_t r, uint8_t v) {
     case 0x4A: gcWY = v; break;
     case 0x4B: gcWX = v; break;
     case 0x4C:                                        // KEY0: the boot ROM picks CGB / DMG-compat mode
-      if (gcBootActive) { gcCgb = !(v & 4); gcOpri = (v & 4) ? 1 : 0; gbcRebuildAll(); }
+      if (gcBootActive) {
+        // A CGB-only cartridge cannot enter DMG compatibility mode. Some
+        // boot-ROM paths (or an incompatible supplied CGB BIOS) can otherwise
+        // leave KEY0 in DMG mode, making the game display its "Game Boy Color
+        // system only" warning even though the CGB core is running.
+        gcCgb = gcHdrCgbOnly ? true : !(v & 4);
+        gcOpri = gcCgb ? 0 : 1;
+        gbcRebuildAll();
+      }
       break;
     case 0x4D: if (gcCgb) gcKey1 = v & 1; break;
     case 0x4F:
@@ -1163,6 +1172,7 @@ static bool gbcLoad(const char *path) {
   gbcFreeAll();
   gbcBuildTables();
   gcBootAvail = false; gcBootActive = false;
+  gcHdrCgb = false; gcHdrCgbOnly = false;
   // Optional 2304 byte CGB boot ROM supplied by the user.
   static const char *const biosNames[] = { "cgb_boot.bin", "cgb_bios.bin", "gbc_bios.bin", "gbc_boot.bin", "boot.bin" };
   char biosPath[96];
@@ -1177,7 +1187,8 @@ static bool gbcLoad(const char *path) {
   uint8_t h[0x50];                                   // header 0x100-0x14F
   if (sdDiagReadAt(gcRomFile, 0x100, h, sizeof(h)) != (int)sizeof(h)) return gbcFail("ROM TRUNCATED", "HEADER");
   const uint8_t cgb = h[0x43], type = h[0x47], ramCode = h[0x49];
-  gcHdrCgb = (cgb & 0x80) != 0;                      // 0x80 = CGB enhanced, 0xC0 = CGB only
+  gcHdrCgb = (cgb & 0x80) != 0;
+  gcHdrCgbOnly = (cgb == 0xC0);                      // 0x80 = CGB enhanced, 0xC0 = CGB only
 
   switch (type) {
     case 0x00: case 0x08: case 0x09:                                   gcMbc = 0; break;
