@@ -29,6 +29,9 @@ static bool               bleAutoDisabled = false;
 // internal RAM and pairing fails with "not enough internal RAM". So the stack is always started at
 // boot, unless the previous boot died *inside* NimBLEDevice::init() (marker survives a soft reset).
 #define BLE_GUARD_MAGIC 0xB1E0B1E0u
+// Internal RAM the BLE stack needs to start. While it is not running, emulator cores must leave this
+// much free (they spill into PSRAM instead), otherwise a later BOOT press can never start BLE.
+#define BLE_INTERNAL_NEED (52u * 1024u)
 static RTC_NOINIT_ATTR uint32_t bleInitGuard;
 static bool bleBootInitAllowed() {
   if (esp_reset_reason() == ESP_RST_POWERON) bleInitGuard = 0;        // RTC RAM is garbage after power-on
@@ -373,7 +376,7 @@ static bool bleInit() {
   if (bleInitGaveUp || bleInitState == 1) return false;  // never start a second init on a stuck stack
   const uint32_t fr = heap_caps_get_free_size(MALLOC_CAP_INTERNAL), lb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
   Serial.printf("BLE: init start (internal free %u, largest block %u)\n", (unsigned)fr, (unsigned)lb);
-  if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE"); return false; }   // would panic -> reboot
+  if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE - reboot, BLE must start at boot"); return false; }   // would panic -> reboot
 
   bleInitState = 1;
   bleInitGuard = BLE_GUARD_MAGIC;                        // cleared again on every path that returns normally

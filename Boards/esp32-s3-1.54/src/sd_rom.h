@@ -66,6 +66,7 @@ static void *emuAlloc(size_t n, size_t internalReserve = 0, bool zero = false) {
   // Guard the reserve calculation against size_t overflow. Without this,
   // internalReserve + n could wrap and incorrectly allow an internal-RAM
   // allocation that violates the caller's reserve requirement.
+  if (!bleInited && internalReserve < BLE_INTERNAL_NEED) internalReserve = BLE_INTERNAL_NEED;   // leave room for BLE
   if (n > SIZE_MAX - internalReserve) return nullptr;
   void *p = nullptr;
   if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) > internalReserve + n)

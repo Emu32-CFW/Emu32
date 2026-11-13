@@ -1029,7 +1029,9 @@ static void freeAll() {
 
 static void *gAlloc(size_t n, bool internalFirst) {
   void *p = nullptr;
-  if (internalFirst) p = heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  // While the BLE stack is not up, keep BLE_INTERNAL_NEED of internal RAM free so BOOT pairing can start.
+  const size_t keep = bleInited ? 0 : BLE_INTERNAL_NEED;
+  if (internalFirst && heap_caps_get_free_size(MALLOC_CAP_INTERNAL) > keep + n) p = heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!p && psramFound()) p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!p) p = heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   return p;
