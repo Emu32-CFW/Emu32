@@ -933,6 +933,18 @@ void setup() {
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
 
+  // BLE FIRST (before audio): the controller needs a large block of internal RAM and must be brought up
+  // while the heap is still unfragmented by the I2S/I2C drivers. bleInit() has its own timeout, so a stuck
+  // radio stack can no longer freeze the boot screen.
+  memLog("before BLE");
+  bootStage("BLE...");
+  if (!bleAutoDisabled) {
+    const bool up = bleInit();
+    Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
+    bootStage(up ? "BLE OK" : "BLE OFF (CONTINUING)");
+  }
+  memLog("after BLE");
+
   // Audio (ES8311 over I2C + I2S). A missing/slow codec only costs a few retries and never blocks the screen.
   // DIAG: set to 1 to boot without touching the audio codec / I2S.
 #define DIAG_NO_AUDIO 0
@@ -952,14 +964,6 @@ void setup() {
   }
 #endif
 
-  memLog("before BLE");
-  bootStage("BLE...");
-  if (!bleAutoDisabled) {
-    const bool up = bleInit();
-    Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
-    bootStage(up ? "BLE OK" : "BLE OFF (CONTINUING)");
-  }
-  memLog("after BLE");
 
   // Monitor PWR independently of the emulator loop, which can be busy in cores.
   // DIAG: set to 1 to test without the power-button task.

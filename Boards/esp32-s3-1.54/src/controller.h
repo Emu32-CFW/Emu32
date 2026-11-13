@@ -322,21 +322,55 @@ static PairScanCB  pairScanCB;
 static PadClientCB padClientCB;
 
 // One-time BLE stack setup (shared by pairing and auto-reconnect).
-static bool bleInit() {
-  if (bleInited) return true;
-  const uint32_t fr = heap_caps_get_free_size(MALLOC_CAP_INTERNAL), lb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-  Serial.printf("BLE: init start (internal free %u, largest block %u)\n", (unsigned)fr, (unsigned)lb);
-  Serial.flush();
-  if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE"); return false; }   // would panic -> reboot
-  if (!NimBLEDevice::init("Emu32")) {
-    Serial.printf("BLE: init failed (free heap %u)\n", (unsigned)ESP.getFreeHeap());
-    return false;
-  }
+// NimBLEDevice::init() waits for the controller/host to sync and can block forever if the radio stack
+// never comes up. It therefore runs in its own task and bleInit() gives up after BLE_INIT_TIMEOUT_MS,
+// so the rest of the firmware keeps booting (BLE simply stays off).
+#define BLE_INIT_TIMEOUT_MS 6000
+static volatile uint8_t bleInitState = 0;     // 0 idle, 1 running, 2 ok, 3 failed
+static bool             bleInitGaveUp = false;
+
+static void bleInitTask(void *) {
+  bleInitState = NimBLEDevice::init("Emu32") ? 2 : 3;
+  vTaskDelete(nullptr);
+}
+
+static void bleConfigureSecurity() {
   NimBLEDevice::setSecurityAuth(true, false, true);      // bonding, no MITM, secure conn. (Just Works)
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
   // HID pads insist on getting the keys of both sides (encryption + identity) when bonding
   NimBLEDevice::setSecurityInitKey(0x01 | 0x02);
   NimBLEDevice::setSecurityRespKey(0x01 | 0x02);
+}
+
+static bool bleInit() {
+  if (bleInited) return true;
+  if (bleInitState == 2) {                               // a timed-out init finished late: accept it
+    bleConfigureSecurity(); bleInited = true; bleInitGaveUp = false; return true;
+  }
+  if (bleInitGaveUp || bleInitState == 1) return false;  // never start a second init on a stuck stack
+  const uint32_t fr = heap_caps_get_free_size(MALLOC_CAP_INTERNAL), lb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  Serial.printf("BLE: init start (internal free %u, largest block %u)\n", (unsigned)fr, (unsigned)lb);
+  if (fr < 45000) { Serial.println("BLE: not enough internal RAM to start BLE"); return false; }   // would panic -> reboot
+
+  bleInitState = 1;
+  if (xTaskCreate(bleInitTask, "ble_init", 8192, nullptr, 1, nullptr) != pdPASS) {
+    bleInitState = 0;
+    Serial.println("BLE: could not create init task");
+    return false;
+  }
+  const uint32_t t0 = millis();
+  while (bleInitState == 1 && millis() - t0 < BLE_INIT_TIMEOUT_MS) delay(10);
+  if (bleInitState == 1) {
+    bleInitGaveUp = true;
+    Serial.printf("BLE: init TIMED OUT after %u ms - BLE disabled for this boot\n", (unsigned)BLE_INIT_TIMEOUT_MS);
+    return false;
+  }
+  if (bleInitState != 2) {
+    bleInitState = 0;
+    Serial.printf("BLE: init failed (free heap %u)\n", (unsigned)ESP.getFreeHeap());
+    return false;
+  }
+  bleConfigureSecurity();
   bleInited = true;
   Serial.printf("BLE: init done (internal free %u)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
   return true;
