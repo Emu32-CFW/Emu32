@@ -15,6 +15,9 @@ static volatile PairState pairState = PAIR_IDLE;
 static volatile bool      bleRT  = false;  // right trigger pulled (analog trigger thresholded)
 static volatile uint16_t  bleBtn = 0;      // raw Xbox button bits from the last HID report
 static volatile uint8_t   bleDir = 0;      // d-pad + left stick as UP/DOWN/LEFT/RIGHT bits (0xF0)
+// Xbox hat encoding, learned from the first report after connecting: -1 unknown,
+// 1 = Xbox style (0 = centred, 1..8 = N..NW), 0 = plain HID style (8/15 = centred, 0..7 = N..NW).
+static volatile int8_t    bleHatMode = -1;
 static volatile bool      bleConnected = false;
 static bool               bleInited = false;
 // Crash-loop breaker: set in setup() when the previous reset was a crash (panic / watchdog /
@@ -154,10 +157,19 @@ static uint8_t decodeHidHat(uint8_t hat) {
 }
 
 static uint8_t decodeXboxHat(uint8_t hat) {
-  // Xbox BLE reports use the standard HID hat-switch values: 0=N, 1=NE,
-  // 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW, and 8=neutral.
-  // Reuse the HID decoder so diagonal directions and neutral are consistent.
-  return decodeHidHat(hat & 0x0F);
+  // The Xbox Wireless Controller declares its hat switch with logical range 1..8 and 0 = centred
+  // (1=N, 2=NE, ... 8=NW). Decoding it as 0=N made the idle pad look like "UP held", which pinned
+  // every menu to its first entry. Some other pads send the plain HID encoding (0..7, 8/15 = centred),
+  // so the encoding is detected from the first report after connecting (a pad that is not being
+  // touched reports its centred value: 0 -> Xbox style, 8/15 -> plain HID).
+  hat &= 0x0F;
+  if (bleHatMode < 0) {
+    if (hat == 0) bleHatMode = 1;
+    else if (hat == 8 || hat == 15) bleHatMode = 0;
+  }
+  if (bleHatMode == 0) return decodeHidHat(hat);
+  if (hat == 0 || hat > 8) return 0;                // centred / invalid
+  return decodeHidHat(hat - 1);                     // 1..8 -> 0..7
 }
 
 static void decodeReport(const uint8_t *d, size_t n) {
@@ -313,7 +325,7 @@ class PadClientCB : public NimBLEClientCallbacks {
     // Otherwise the last held button can remain visible until the next menu tick.
     bleConnected = false;
     bleBtn = 0; bleRT = false;
-    bleDir = 0;
+    bleDir = 0; bleHatMode = -1;
     padState = 0;
     Serial.printf("BLE: controller disconnected (reason %d)\n", reason);
   }
@@ -416,7 +428,7 @@ static void blePairStart() {
   bleFail = "";
   if (!bleInit()) { bleFail = "BLE INIT"; ledSignal(false); backlightBlink(4); return; }
   if (bleClient && bleClient->isConnected()) bleClient->disconnect();
-  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0;
+  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0; bleHatMode = -1;
   Serial.println("BLE: clearing bonds"); Serial.flush();
   NimBLEDevice::deleteAllBonds();                          // stale keys make re-pairing fail
   bleForgetLast();                                         // old controller no longer bonded
@@ -471,7 +483,7 @@ static inline bool linkEncrypted() { return bleClient->isConnected() && bleClien
 // Connect + encrypt + subscribe. pairing = true when this is a brand new pairing (a failed
 // attempt then throws away the half-made bond so the next try starts clean).
 static bool bleConnectPad(int attempts = 3, uint32_t timeoutMs = 8000, bool pairing = false) {
-  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0;
+  bleConnected = false; bleBtn = 0; bleRT = false; bleDir = 0; bleHatMode = -1;
   if (!bleClient) {
     bleClient = NimBLEDevice::createClient();
     bleClient->setClientCallbacks(&padClientCB, false);
