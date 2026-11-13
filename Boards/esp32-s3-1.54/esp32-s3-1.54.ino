@@ -106,52 +106,47 @@ static void initHardwarePowerLatch() {
   digitalWrite(PIN_PWR_HOLD, HIGH);
 }
 
+// Set to 0 to disable the PWR-button shutdown entirely (the battery latch is still held).
+#define ENABLE_PWR_BUTTON_SHUTDOWN 1
+#define PWR_ARM_AFTER_MS   3000   // ignore GPIO5 for the first seconds after boot
+#define PWR_RELEASED_MS    1000   // GPIO5 must read HIGH this long before the button is trusted
+#define PWR_HOLD_MS        1500   // deliberate hold needed to shut down
+
 static void powerOffFromButton() {
-  Serial.println("PWR: button pressed; shutting down");
+  Serial.println("PWR: button held; shutting down");
   digitalWrite(EmuAudio::PIN_AMP, LOW);
   digitalWrite(PIN_LCD_BL, LOW);
   delay(80);
-  // Release the board's battery power latch. A press of the same physical
-  // PWR button should re-enable the latch through the board's hardware.
+  // Release the board's battery power latch. On battery this cuts power.
   digitalWrite(PIN_PWR_HOLD, LOW);
-  delay(100);
-  while (true) delay(1000);
+  delay(1000);
+  // Still running => the board is powered from USB, so the latch cannot cut power.
+  // Never sit here with a dark screen: restart so the latch and backlight come back.
+  Serial.println("PWR: still powered (USB) - restarting instead of staying black");
+  ESP.restart();
 }
 
 static void pollPhysicalPowerButton() {
-  // Power button is active-low on GPIO5. This is called from a dedicated
-  // FreeRTOS task so it remains responsive even while an emulator core is busy.
+  // Called from a dedicated FreeRTOS task so it stays responsive while a core is busy.
   static bool armed = false;
-  static bool wasReleased = true;
+  static uint32_t releasedSince = 0;
   static uint32_t pressedAt = 0;
-  const bool released = digitalRead(PIN_PWR_BUTTON) == HIGH;
   const uint32_t now = millis();
+  const bool released = digitalRead(PIN_PWR_BUTTON) == HIGH;
 
-  // Ignore the press used to start the board; arm after a confirmed release.
+  // Arm only after boot has settled AND the pin has proven it idles HIGH. A pin that is
+  // stuck/floating LOW (wrong GPIO on a board revision) can then never power the board off.
   if (!armed) {
-    if (released) {
-      armed = true;
-      wasReleased = true;
-    }
+    if (now < PWR_ARM_AFTER_MS) return;
+    if (!released) { releasedSince = 0; return; }
+    if (releasedSince == 0) releasedSince = now;
+    if (now - releasedSince >= PWR_RELEASED_MS) armed = true;
     return;
   }
 
-  if (released) {
-    wasReleased = true;
-    pressedAt = 0;
-    return;
-  }
-
-  if (wasReleased) {
-    wasReleased = false;
-    pressedAt = now;
-    return;
-  }
-
-  // A deliberate hold avoids accidental shutdown from button bounce.
-  if (pressedAt != 0 && now - pressedAt >= 700) {
-    powerOffFromButton();
-  }
+  if (released) { pressedAt = 0; return; }
+  if (pressedAt == 0) { pressedAt = now; return; }
+  if (now - pressedAt >= PWR_HOLD_MS) powerOffFromButton();
 }
 
 static void physicalPowerButtonTask(void *parameter) {
@@ -888,39 +883,43 @@ static void memLog(const char *where) {
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }
 
+// Boot progress on the LCD. If the board ever stops, the last line on screen says where.
+static int bootLine = 0;
+static void bootStage(const char *msg) {
+  Serial.printf("BOOT: %s\n", msg);
+  const int y = 60 + (bootLine % 9) * 16;
+  lcdTextRow(y, 14, msg, 1, col565(200, 200, 200), 0, 8);
+  bootLine++;
+}
+
 void setup() {
   initHardwarePowerLatch();
   pinMode(PIN_PWR_BUTTON, INPUT_PULLUP);
   Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT
-  // With USB CDC, a powered cable with no serial monitor reading (a charger, or a PC with the port
-  // closed) fills the TX buffer and every Serial.print then blocks for the TX timeout. That stalls
-  // the emulator and makes the device crawl whenever USB is plugged in. Never block on USB writes.
+  // Never block on USB writes when no serial monitor is attached.
   Serial.setTxTimeoutMs(0);
 #endif
-  delay(250);
-  // Some ESP32-S3 Arduino builds enable dynamic CPU-frequency scaling or boot
-  // with a reduced clock. The emulator's cycle loops and software audio timing
-  // assume the board is running at its full 240 MHz. Restore that clock on every
-  // reset, before initializing peripherals or any emulator core.
+  delay(100);
+
+  // ---- DISPLAY FIRST ------------------------------------------------------------
+  // Audio, BLE and the SD card can all stall or crash. They used to run before the LCD was
+  // initialised, which left the backlight off => a permanent black screen. Now the panel is
+  // brought up before anything else, so the screen is on no matter what fails later.
+  SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, -1);
+  lcdInit();
+  lcdClearTransition(0);
+  lcdTextRow(30, 14, "STARTING EMU32", 2, col565(255, 255, 255), 0);
+  Serial.println("LCD: initialized");
+  bootStage("LCD OK");
+
+  // Some builds boot with a reduced/dynamic CPU clock; the emulators need the full 240 MHz.
   setCpuFrequencyMhz(240);
   Serial.printf("CPU clock: %u MHz\n", (unsigned)getCpuFrequencyMhz());
-  // Initialize audio silently. No startup beep: sound is only produced by games.
-  // DIAG: set to 1 to boot without touching the audio codec / I2S.
-#define DIAG_NO_AUDIO 0
-#if DIAG_NO_AUDIO
-  if (true) {
-    Serial.println("DIAG: audio init skipped");
-  } else
-#endif
-  if (!EmuAudio::begin()) {
-    Serial.printf("WARN: audio init failed (ES8311=%s, I2S=%s)\n",
-                  EmuAudio::isCodecReady() ? "OK" : "NOT FOUND/INIT ERROR",
-                  EmuAudio::isReady() ? "OK" : "FAILED");
-  } else {
-    Serial.println("ES8311 codec + I2S speaker output ready (startup tone disabled)");
-  }
-  if (EmuAudio::isReady()) Serial.println("Game audio generators ready");
+  Serial.printf("Memory at boot: internal free=%u, PSRAM %s (%u bytes free)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                psramFound() ? "ENABLED" : "NOT enabled (Tools > PSRAM > OPI PSRAM)", (unsigned)ESP.getFreePsram());
+  if (!psramFound()) bootStage("NO PSRAM - SET OPI PSRAM");
+
   {
     static const char *const why[] = { "UNKNOWN", "POWERON", "EXT", "SW", "PANIC", "INT_WDT", "TASK_WDT", "WDT",
                                        "DEEPSLEEP", "BROWNOUT", "SDIO", "USB", "JTAG", "EFUSE", "PWR_GLITCH", "CPU_LOCKUP" };
@@ -928,44 +927,53 @@ void setup() {
     Serial.printf("Reset reason: %s (%u)\n", r < 16 ? why[r] : "?", r);   // PANIC / *_WDT / BROWNOUT = a crash
     // PANIC(4) / INT_WDT(5) / TASK_WDT(6) / WDT(7) / BROWNOUT(9) / CPU_LOCKUP(15): break a possible boot loop.
     bleAutoDisabled = (r == 4 || r == 5 || r == 6 || r == 7 || r == 9 || r == 15);
-    if (bleAutoDisabled) Serial.println("Previous boot crashed: BLE auto-reconnect disabled this boot");
+    if (bleAutoDisabled) { Serial.println("Previous boot crashed: BLE auto-reconnect disabled this boot"); bootStage("LAST BOOT CRASHED"); }
   }
   for (int i = 0; i < 8; i++) if (padPins[i] >= 0) pinMode(padPins[i], INPUT_PULLUP);
   pinMode(PAIR_PIN, INPUT_PULLUP);
   ledInit();
+
+  // Audio (ES8311 over I2C + I2S). A missing/slow codec only costs a few retries and never blocks the screen.
+  // DIAG: set to 1 to boot without touching the audio codec / I2S.
+#define DIAG_NO_AUDIO 0
+  bootStage("AUDIO...");
+#if DIAG_NO_AUDIO
+  Serial.println("DIAG: audio init skipped");
+#else
+  Wire.setTimeOut(50);                           // never let a dead I2C bus stall boot
+  if (!EmuAudio::begin()) {
+    Serial.printf("WARN: audio init failed (ES8311=%s, I2S=%s)\n",
+                  EmuAudio::isCodecReady() ? "OK" : "NOT FOUND/INIT ERROR",
+                  EmuAudio::isReady() ? "OK" : "FAILED");
+    bootStage("AUDIO OFF (CONTINUING)");
+  } else {
+    Serial.println("ES8311 codec + I2S speaker output ready (startup tone disabled)");
+    bootStage("AUDIO OK");
+  }
+#endif
+
   memLog("before BLE");
-  if (!bleAutoDisabled) {                        // start BLE first, while the internal heap is still large
+  bootStage("BLE...");
+  if (!bleAutoDisabled) {
     const bool up = bleInit();
     Serial.printf("BLE: stack %s at boot\n", up ? "ready" : "FAILED to start");
+    bootStage(up ? "BLE OK" : "BLE OFF (CONTINUING)");
   }
   memLog("after BLE");
 
-  // Bring up the display before touching SDMMC/BLE or allocating emulator
-  // resources. If the card is absent or SDMMC initialization fails, the user
-  // still gets a visible screen instead of a black backlight/display.
-  SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, -1);
-  Serial.printf("Memory at boot: internal free=%u, PSRAM %s (%u bytes free)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                psramFound() ? "ENABLED" : "NOT enabled (Tools > PSRAM > OPI PSRAM)", (unsigned)ESP.getFreePsram());
-  Serial.println("LCD: initializing");
-  lcdInit();
   // Monitor PWR independently of the emulator loop, which can be busy in cores.
   // DIAG: set to 1 to test without the power-button task.
 #define DIAG_NO_PWR_TASK 0
-#if DIAG_NO_PWR_TASK
+#if DIAG_NO_PWR_TASK || !ENABLE_PWR_BUTTON_SHUTDOWN
   const BaseType_t pwrTaskCreated = pdFAIL;
 #else
   const BaseType_t pwrTaskCreated = xTaskCreatePinnedToCore(
       physicalPowerButtonTask, "pwr_button", 4096, nullptr, 3, nullptr, 0);
 #endif
-  Serial.printf("PWR button task: %s\n", pwrTaskCreated == pdPASS ? "started" : "FAILED");
-  lcdClearTransition(0);
-  lcdTextRow(140, 14, "STARTING EMU32", 2, col565(255, 255, 255), 0);
-  Serial.println("LCD: initialized");
+  Serial.printf("PWR button task: %s\n", pwrTaskCreated == pdPASS ? "started" : "not running");
   memLog("after LCD");
 #if LCD_COLOR_TEST
   {
-    // Each band is labelled with the colour it SHOULD be. Compare with what you see:
-    //   red/blue swapped -> toggle 0x08 in lcdMadctl[];  everything negative (white band black) -> LCD_INVERT
     struct Bar { const char *name; uint8_t r, g, b; uint16_t txt; };
     const Bar bars[] = {
       { "RED",   255, 0,   0,   col565(255,255,255) },
@@ -981,11 +989,10 @@ void setup() {
       lcdTextRow(i * bh + (bh - 20) / 2, 20, bars[i].name, 2, bars[i].txt, c);
     }
     delay(4000);
-    lcdClearTransition(0);
-    lcdTextRow(140, 14, "STARTING EMU32", 2, col565(255, 255, 255), 0);
   }
 #endif
 
+  bootStage("SPLASH");
   splash();
 
   Serial.println("SD: initializing folders");

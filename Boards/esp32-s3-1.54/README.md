@@ -43,6 +43,13 @@ The emulator cores, menus, save states and BLE code are carried over. The sketch
 ## Screen layout (240x240)
 The UI has a dedicated square layout: the system menu fits all six entries on one screen, the game list uses the side-by-side list + box-art layout, the pause menu is full-screen, and the 240x180 game picture is centred vertically. Everything stays inside the 240x240 area in all four orientations.
 
+## Black screen on boot - fix
+Earlier builds initialised audio (I2C/I2S codec), the BLE stack and the PWR-button logic *before* the LCD, so a stall or crash in any of them left the backlight off. Now:
+- The LCD (and backlight) is brought up first, and `STARTING EMU32` plus a stage list (`LCD OK`, `AUDIO...`, `AUDIO OK/OFF`, `BLE...`, `BLE OK/OFF`, `SPLASH`) is drawn as boot proceeds. If the board stops, the last line on screen (and the serial `BOOT:` lines) shows where.
+- Audio and BLE failures are non-fatal: they print `AUDIO OFF` / `BLE OFF (CONTINUING)` and boot goes on. The I2C bus has a 50 ms timeout so a missing codec cannot stall boot.
+- The PWR-button shutdown is armed only 3 s after boot and only once GPIO5 has idled HIGH for 1 s, and needs a 1.5 s hold. If the board is on USB power (latch cannot cut power) it now restarts instead of sitting with a dark screen. Set `ENABLE_PWR_BUTTON_SHUTDOWN 0` in the sketch to disable shutdown completely.
+- If you still get a black screen with no text at all, the LCD pins do not match your board revision: open the serial monitor at 115200 and send the lines starting with `Reset reason`, `Memory at boot` and `LCD:`. Also make sure Tools > PSRAM is **OPI PSRAM** and USB CDC On Boot is Enabled.
+
 ## First-boot troubleshooting
 - Picture orientation: adjust `LCD_ROT_DEFAULT` in the sketch (0–3) if the image is rotated.
 - Colours look negative: set `LCD_INVERT` to `0`. Red and blue swapped: set the 0x08 (BGR) bit in `lcdMadctl[]`. Set `LCD_COLOR_TEST` to `1` to show labelled colour bars at boot.
