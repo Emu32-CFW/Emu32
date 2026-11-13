@@ -1116,7 +1116,7 @@ static void gbcFrame(bool draw) {
   if (draw) lcdDirty = false;                       // every band was compared against the LCD contents this frame
   if (!(gcLCDC & 0x80)) {                           // LCD off: white screen, keep the counter small
     gcPpuClk = 0;
-    if (draw) { lcdFill(GAME_X, GAME_Y, GBC_OUT_W, GBC_OUT_H, 0xFFFF); shotFillAll(0xFFFF); lcdDirty = true; }
+    if (draw) { lcdFill(GAME_X + (GAME_W - GBC_OUT_W) / 2, GAME_Y, GBC_OUT_W, GBC_OUT_H, 0xFFFF); shotFillAll(0xFFFF); lcdDirty = true; }   // same X offset as gbcPushBand, else a white bar is left at the left edge
   }
   gbcSerialCheck();
   gcFrameNo++;
