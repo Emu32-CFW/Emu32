@@ -1233,6 +1233,8 @@ static bool gbcLoad(const char *path) {
     if (!gcBootPage) gcBootAvail = false;            // boot ROM is optional: carry on without it
   }
   // Minimum ROM page cache (small pieces, so they can use fragmented heap).
+  const int want     = gcRomPages < (uint32_t)GBC_MAX_SLOTS ? (int)gcRomPages : GBC_MAX_SLOTS;
+  const int minSlots = gcRomPages < (uint32_t)GBC_MIN_SLOTS ? (int)gcRomPages : GBC_MIN_SLOTS;
   while (gcSlots < minSlots) {
     uint8_t *p = (uint8_t *)emuAlloc(4096, 0);
     if (!p) break;

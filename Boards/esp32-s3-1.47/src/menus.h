@@ -82,48 +82,79 @@ static void menuTextRowRegion(int x0, int y, int w, int h, const char *s, int sc
   SPI.endTransaction();
 }
 
-static void menuDraw(int sel, int top, const char *status) {
-  lcdFill(0, 0, LCD_W, LCD_H, uiBg());
-  char title[48];
-  snprintf(title, sizeof(title), "%s LIBRARY", sysShort[curSys]);
-  lcdTextRow(0, 22, title, 2, uiWhite(), uiPanel());
-  lcdFill(0, 22, LCD_W, 2, uiAccent());
-  char info[48];
-  snprintf(info, sizeof(info), "%d GAMES  |  %d/%d", romCount, romCount ? sel + 1 : 0, romCount);
-  lcdTextRow(24, 15, info, 1, uiMuted(), uiBg());
+// ---- ROM list drawing ---------------------------------------------------------
+// Repainting the whole 172x320 screen (plus an SD lookup for box art) on every cursor
+// move is what made the menus feel sluggish. The list now keeps track of what is already
+// on the panel and only repaints what changed:
+//   * static chrome (title, accent rule)     -> once per menu entry / rotation
+//   * info line + footer                     -> small strips, only when their text changes
+//   * list rows                              -> only the old and new selected row, or the
+//                                               whole list when it scrolls
+//   * box art                                -> deferred until the cursor rests (see romMenu)
+static struct { bool valid; int sel, top, rot, count; } menuShown = { false, -1, -1, -1, -1 };
+static void menuInvalidate() { menuShown.valid = false; }
 
-  const int listTop = menuListTop();
-  const int listW = menuListWidth();
-  for (int i = 0; i < menuVisibleRows(); i++) {
-    const int idx = top + i, y = listTop + i * MENU_ROW_H;
-    if (y >= LCD_H - 18) break;
-    const bool selected = idx == sel;
-    const uint16_t rowBg = selected ? uiBlue() : ((i & 1) ? uiPanel2() : uiBg());
-    if (idx >= romCount) {
-      menuTextRowRegion(0, y, listW, MENU_ROW_H, "", 2, 0, uiBg());
-      continue;
-    }
-    char nm[40]; baseName(romNames[idx], nm, sizeof(nm));
-    menuFitLabel(nm, sizeof(nm), listW);
-    menuTextRowRegion(0, y, listW, MENU_ROW_H, nm, 2,
-                      selected ? uiWhite() : uiMuted(), rowBg);
-    if (selected) lcdFill(0, y, 3, MENU_ROW_H, uiAccent());
-    else lcdFill(0, y + MENU_ROW_H - 1, listW, 1, uiPanel());
-  }
+static void menuDrawRow(int idx, int row, int sel) {
+  const int y = menuListTop() + row * MENU_ROW_H, listW = menuListWidth();
+  if (y + MENU_ROW_H > LCD_H - 18) return;
+  const bool selected = idx == sel;
+  const uint16_t rowBg = selected ? uiBlue() : ((row & 1) ? uiPanel2() : uiBg());
+  if (idx < 0 || idx >= romCount) { menuTextRowRegion(0, y, listW, MENU_ROW_H, "", 2, 0, uiBg()); return; }
+  char nm[40]; baseName(romNames[idx], nm, sizeof(nm));
+  menuFitLabel(nm, sizeof(nm), listW);
+  menuTextRowRegion(0, y, listW, MENU_ROW_H, nm, 2, selected ? uiWhite() : uiMuted(), rowBg);
+  // Accent bar / separator are folded in by painting just 3 px or 1 px more.
+  if (selected) lcdFill(0, y, 3, MENU_ROW_H, uiAccent());
+  else lcdFill(0, y + MENU_ROW_H - 1, listW, 1, uiPanel());
+}
 
-  // Portrait uses a centered preview above the list. Landscape uses a fixed
-  // right-side preview column, keeping the list visible on the left.
+static void menuDrawBoxArt(int sel) {
   if (romCount > 0 && sel >= 0 && sel < romCount) {
     if (LCD_W > LCD_H) boxArtDraw(romNames[sel], LCD_W - 88, 43, 78, 88);
     else boxArtDraw(romNames[sel], (LCD_W - 72) / 2, 42, 72, 70);
+  }
+}
+
+// Returns true when it did a full repaint (box art must then be redrawn by the caller).
+static bool menuDraw(int sel, int top, const char *status) {
+  const bool full = !menuShown.valid || menuShown.rot != (int)lcdRot || menuShown.count != romCount;
+  const bool scrolled = full || menuShown.top != top;
+
+  if (full) {
+    lcdFill(0, 0, LCD_W, LCD_H, uiBg());
+    char title[48];
+    snprintf(title, sizeof(title), "%s LIBRARY", sysShort[curSys]);
+    lcdTextRow(0, 22, title, 2, uiWhite(), uiPanel());
+    lcdFill(0, 22, LCD_W, 2, uiAccent());
+  }
+  if (full || menuShown.sel != sel) {
+    char info[48];
+    snprintf(info, sizeof(info), "%d GAMES  |  %d/%d", romCount, romCount ? sel + 1 : 0, romCount);
+    lcdTextRow(24, 15, info, 1, uiMuted(), uiBg());
+  }
+
+  const int rows = menuVisibleRows();
+  if (scrolled) {
+    for (int i = 0; i < rows; i++) menuDrawRow(top + i, i, sel);
+  } else if (menuShown.sel != sel) {
+    const int o = menuShown.sel - top, n = sel - top;
+    if (o >= 0 && o < rows) menuDrawRow(menuShown.sel, o, sel);
+    if (n >= 0 && n < rows) menuDrawRow(sel, n, sel);
   }
 
   char foot[48];
   if (romListTruncated) snprintf(foot, sizeof(foot), "LOW RAM: LIST INCOMPLETE");
   else if (status && status[0]) snprintf(foot, sizeof(foot), "A PLAY   B BACK   %s", status);
   else snprintf(foot, sizeof(foot), "A PLAY   B BACK   UP/DN MOVE");
-  lcdTextRow(LCD_H - 18, 18, foot, 1, uiMuted(), uiPanel());
-  lcdFill(0, LCD_H - 18, LCD_W, 1, uiAccent());
+  static char lastFoot[48];
+  if (full || strcmp(foot, lastFoot) != 0) {
+    lcdTextRow(LCD_H - 18, 18, foot, 1, uiMuted(), uiPanel());
+    lcdFill(0, LCD_H - 18, LCD_W, 1, uiAccent());
+    strlcpy(lastFoot, foot, sizeof(lastFoot));
+  }
+
+  menuShown = { true, sel, top, (int)lcdRot, romCount };
+  return full;
 }
 
 #include "history.h"
@@ -173,6 +204,10 @@ static int romMenu() {
   bool     dirty = true;
   uint16_t prevBleButtons = bleBtn;
   favoriteLoad();
+  menuInvalidate();
+  bool     artPending = true;                         // box art is drawn once the cursor rests
+  uint32_t artDueMs = 0;
+  int      artShownSel = -1;
 
   for (;;) {
     readPad();
@@ -225,7 +260,7 @@ static int romMenu() {
         if (ns < 0) ns = romCount - 1; else if (ns >= romCount) ns = 0;
       }
       ns = constrain(ns, 0, romCount - 1);
-      if (ns != sel) { sel = ns; dirty = true; }
+      if (ns != sel) { sel = ns; dirty = true; artPending = true; artDueMs = now + 120; }
     }
 
     if (sel < top) top = sel;
@@ -239,10 +274,16 @@ static int romMenu() {
       if (sel >= 0 && sel < romCount)
         snprintf(selectedPath, sizeof(selectedPath), "%s/%s", sysDir[curSys], romNames[sel]);
       snprintf(hint, sizeof(hint), "%s", favoriteIndex(selectedPath) >= 0 ? "Y UNFAVORITE" : "Y FAVORITE");
-      menuDraw(sel, top, hint);
+      if (menuDraw(sel, top, hint)) { artPending = true; artShownSel = -1; artDueMs = now; }
       lastStatus = status; dirty = false;
     }
-    delay(16);
+    // Box art needs SD lookups and possibly a PNG decode: only do it once the cursor has been
+    // still for a moment, so scrolling through the list stays instant.
+    if (artPending && (int32_t)(millis() - artDueMs) >= 0 && !(padState & 0xF0)) {
+      if (artShownSel != sel) { menuDrawBoxArt(sel); artShownSel = sel; }
+      artPending = false;
+    }
+    delay(8);
   }
 }
 
