@@ -659,11 +659,14 @@ static int gamesSystemMenu() {
       sysSel = sel; return sel;
     }
 
+    // D-pad bits are UP=0x10 and DOWN=0x20. Do not test 0x50/0xA0:
+    // those masks require a diagonal (UP+LEFT / DOWN+RIGHT) and can make
+    // ordinary vertical scrolling appear to jump or reset.
     uint8_t src = 0;
-    if (pressed & 0x50) { src = 0x10; nextRep = now + 350; }
-    else if (pressed & 0xA0) { src = 0x20; nextRep = now + 350; }
-    else if ((s & 0x50) && (int32_t)(now - nextRep) >= 0) { src = 0x10; nextRep = now + 90; }
-    else if ((s & 0xA0) && (int32_t)(now - nextRep) >= 0) { src = 0x20; nextRep = now + 90; }
+    if (pressed & 0x10) { src = 0x10; nextRep = now + 350; }
+    else if (pressed & 0x20) { src = 0x20; nextRep = now + 350; }
+    else if ((s & 0x10) && (int32_t)(now - nextRep) >= 0) { src = 0x10; nextRep = now + 90; }
+    else if ((s & 0x20) && (int32_t)(now - nextRep) >= 0) { src = 0x20; nextRep = now + 90; }
 
     int step = src == 0x10 ? -1 : src == 0x20 ? 1 : 0;
     if (step) {
@@ -1030,11 +1033,14 @@ static int sysMenu() {
         dirty = true;
       }
     }
+    // Match the controller's actual direction-bit layout used by the ROM
+    // browser: UP=0x10, DOWN=0x20. The old diagonal masks (0x50/0xA0)
+    // caused inconsistent menu navigation.
     uint8_t src = 0;
-    if (pressed & 0x50) { src=0x10; nextRep=now+350; }
-    else if (pressed & 0xA0) { src=0x20; nextRep=now+350; }
-    else if ((s & 0x50) && (int32_t)(now-nextRep)>=0) { src=0x10; nextRep=now+90; }
-    else if ((s & 0xA0) && (int32_t)(now-nextRep)>=0) { src=0x20; nextRep=now+90; }
+    if (pressed & 0x10) { src=0x10; nextRep=now+350; }
+    else if (pressed & 0x20) { src=0x20; nextRep=now+350; }
+    else if ((s & 0x10) && (int32_t)(now-nextRep)>=0) { src=0x10; nextRep=now+90; }
+    else if ((s & 0x20) && (int32_t)(now-nextRep)>=0) { src=0x20; nextRep=now+90; }
     if (src) {
       const int next = constrain(mainSel + (src==0x10 ? -1 : 1), 0, 4);
       if (next != mainSel) { mainSel=next; dirty=true; }
