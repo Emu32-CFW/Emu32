@@ -66,7 +66,7 @@
 #define PIN_LCD_RST   21
 #define PIN_LCD_BL    22
 #define PIN_SD_CS     4
-#define LCD_SPI_HZ    80000000   // lower to 40000000 if the picture glitches
+#define LCD_SPI_HZ    40000000   // shared LCD/SD SPI bus: keep the panel clock conservative
 #define LCD_COLOR_TEST 0         // 1 = show labelled colour bars for 4 s at boot (set 0 once colours are right)
 #define LCD_INVERT    1          // colour inversion: this IPS panel needs 1; set 0 if colours look negative
 

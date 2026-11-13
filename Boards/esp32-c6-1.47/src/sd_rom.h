@@ -355,9 +355,22 @@ static void sdDiagSummary(const char *reason) {
 static bool sdMount() {
   if (sdMounted && !sdIoFault) return true;
   if (sdMounted && sdIoFault) { SD.end(); sdMounted = false; }
-  if (!SD.begin(PIN_SD_CS, SPI, 20000000)) {
+
+  // The C6 board wires the LCD and microSD socket to the same SPI host.
+  // Explicitly park the LCD chip-select before SD.begin(), then use a
+  // conservative card clock. A marginal shared-bus transaction otherwise
+  // causes every SD-streamed emulator to fail in the same way at launch.
+  pinMode(PIN_LCD_CS, OUTPUT);
+  digitalWrite(PIN_LCD_CS, HIGH);
+  pinMode(PIN_SD_CS, OUTPUT);
+  digitalWrite(PIN_SD_CS, HIGH);
+  delayMicroseconds(2);
+  if (!SD.begin(PIN_SD_CS, SPI, 10000000)) {
     strlcpy(loadErr1, "NO SD CARD", sizeof(loadErr1));
     strlcpy(loadErr2, "CHECK CARD", sizeof(loadErr2));
+    Serial.printf("SD: mount failed; SPI shared bus, freq=10000000, free=%u largest=%u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
     return false;
   }
   Serial.printf("SD: mounted OK, type=%u size=%llu MB\n", (unsigned)SD.cardType(),

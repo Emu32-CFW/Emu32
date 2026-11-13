@@ -100,3 +100,24 @@ No core copies a whole ROM into RAM any more. NES, Game Boy, Game Boy Color and 
 open on the card and stream 8 KB / 16 KB / 4 KB / 1 KB pages on demand into a cache
 (NES 4 PRG + 8 CHR banks, Atari 16 pages; GB and GBC size theirs from the free RAM, since the C6 has no PSRAM). The card stays mounted during play, and a
 read failure shows "ROM READ ERROR / SD CARD LOST" instead of running on corrupt data.
+
+
+## ESP32-C6 1.47 shared-SPI launch reliability patch
+
+The LCD and microSD socket share the C6 SPI host. The launch path now explicitly
+parks both chip-select lines high before mounting the card, reduces the SD clock
+from 20 MHz to 10 MHz, and reduces the LCD clock from 80 MHz to 40 MHz. This
+conservative bus configuration targets the common SD transport used by all four
+streaming emulator cores. Hardware verification is still required on the target
+board; connect USB serial at 115200 baud if launch still fails and capture the
+`SD:` / `ERROR:` / `MEM:` lines.
+
+
+## ESP32-C6 Game Boy memory fix
+
+- Reduced the mandatory monochrome Game Boy ROM cache from three 16 KB banks
+  to two, matching the two 16 KB CPU ROM windows.
+- Cache replacement now pins the bank mapped in the opposite window rather
+  than permanently pinning bank 0. This allows MBC1 mode-1 bank switching to
+  work with the smaller cache.
+- This saves one mandatory 16 KB internal-RAM allocation on no-PSRAM boards.

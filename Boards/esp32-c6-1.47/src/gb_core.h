@@ -129,10 +129,14 @@ static uint8_t *gbGetBank(uint32_t bank, uint32_t pin) {
   int v = -1; uint32_t best = 0xFFFFFFFF;
   for (int i = 0; i < gSlots; i++) {
     if (gSlotBank[i] == 0xFFFF) { v = i; break; }
-    if (gSlotBank[i] == 0 || gSlotBank[i] == pin) continue;
+    // Protect only the bank mapped in the other ROM window. Bank 0 is
+    // not permanently pinned: in MBC1 mode 1 it may not be mapped at all.
+    // This lets the C6 run with a two-bank cache instead of requiring a
+    // third 16 KB allocation that can fail on fragmented internal RAM.
+    if (gSlotBank[i] == pin) continue;
     if (gSlotStamp[i] <= best) { best = gSlotStamp[i]; v = i; }
   }
-  if (v < 0) v = gSlots - 1;                       // cannot happen with >= 3 slots
+  if (v < 0) v = gSlots - 1;                       // fallback; mapped peer is normally pinned
   if (gSlotBank[v] != 0xFFFF) gBankSlot[gSlotBank[v]] = 0xFF;
   if (!gbLoadBankInto(v, bank)) {
     memset(gSlotData[v], 0xFF, 16384);
@@ -909,10 +913,12 @@ static bool gbLoad(const char *path) {
   gMbc1M = gbDetectMbc1M();
   if (gMbc1M) Serial.println("GB: detected MBC1M multicart banking");
 
-  // Reserve the minimum ROM cache FIRST (3 banks: bank 0 + two windows), before the big cart-RAM block can
-  // fragment the heap; then allocate cart RAM; then top the cache up with whatever is left.
+  // Reserve the minimum ROM cache FIRST (two banks: one for each mapped
+  // 16 KB window), before cart RAM can fragment the heap. The active bank in
+  // the opposite window is pinned during replacement, so two slots are enough.
+  // Top the cache up with whatever internal RAM remains after core memory.
   const int want = gRomBanks < GB_MAX_SLOTS ? (int)gRomBanks : GB_MAX_SLOTS;
-  const int minSlots = gRomBanks < 3 ? (int)gRomBanks : 3;
+  const int minSlots = gRomBanks < 2 ? (int)gRomBanks : 2;
   gSlots = 0;
   while (gSlots < minSlots) {
     uint8_t *p = (uint8_t *)emuAlloc(16384, 0);
