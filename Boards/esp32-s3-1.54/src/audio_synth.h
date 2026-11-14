@@ -411,6 +411,35 @@ namespace EmuSound {
     ym.dacN = 0;
   }
 
+  // ---------------------------------------------------------------- Master System: SN76489 PSG only
+  static void genSms(float *o, size_t n) {
+    using namespace AudioEv;
+    if (!fmTabs) fmInitTables();
+    if (ps.lfsr == 0) ps.lfsr = 0x8000;
+    static const float PSGCLK = 3579545.0f;
+    float noisePer = 0; { const uint8_t nr = psg.noise & 3; noisePer = (nr == 3 ? (psg.tone[2] ? psg.tone[2] : 1) : (16 << nr)) * 32.0f * (SRATE / PSGCLK); }
+    const bool white = psg.noise & 4;
+    for (size_t i = 0; i < n; i++) {
+      float sum = 0;
+      for (int c = 0; c < 3; c++) {
+        const float a = psgAmp[psg.vol[c] & 15];
+        if (a <= 0.0f) continue;
+        const int per = psg.tone[c] ? psg.tone[c] : 1;
+        if (per <= 1) { sum += a * 0.3f; continue; }
+        uint8_t &fl = ps.flip[c];
+        const float v = boxAvg(ps.left[c], per * 16.0f * (SRATE / PSGCLK), [&] { return fl ? 1.0f : -1.0f; }, [&] { fl ^= 1; });
+        sum += v * a * 0.3f;
+      }
+      { const float a = psgAmp[psg.vol[3] & 15];
+        if (a > 0.0f) {
+          const float v = boxAvg(ps.left[3], noisePer, [&] { return (ps.lfsr & 1) ? 1.0f : -1.0f; },
+                                 [&] { const uint16_t fb = white ? (uint16_t)(__builtin_parity(ps.lfsr & 0x0009)) : (uint16_t)(ps.lfsr & 1); ps.lfsr = (ps.lfsr >> 1) | (fb << 15); });
+          sum += v * a * 0.25f;
+        } }
+      o[i] = sum;
+    }
+  }
+
   // ---------------------------------------------------------------- output stage
   static float hpX = 0, hpY = 0, lpY = 0, fade = 0;
 
@@ -434,6 +463,7 @@ namespace EmuSound {
       case SYS_GBC:     genGb(1, fbuf, count); break;
       case SYS_A2600:   genTia(fbuf, count); break;
       case SYS_GENESIS: genGenesis(fbuf, count); break;
+      case SYS_SMS:     genSms(fbuf, count); break;
       default: for (size_t i = 0; i < count; i++) fbuf[i] = 0; break;
     }
 

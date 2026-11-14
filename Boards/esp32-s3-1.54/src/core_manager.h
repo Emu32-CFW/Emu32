@@ -19,7 +19,8 @@ static const CoreDescriptor coreDescriptors[SYS_COUNT] = {
   { SYS_GB,    "GAME BOY",        16742, true,  true  },
   { SYS_GBC,   "GAME BOY COLOR",  16742, true,  true  },
   { SYS_A2600, "ATARI 2600",      16688, true,  true  },
-  { SYS_GENESIS, "GENESIS",       16688, true,  true  }
+  { SYS_GENESIS, "GENESIS",       16688, true,  true  },
+  { SYS_SMS,   "MASTER SYSTEM",   16688, false, true  }
 };
 
 static const CoreDescriptor *coreDescriptor(uint8_t system) {
@@ -38,6 +39,7 @@ static bool coreLoad(uint8_t system, const char *path) {
     case SYS_GBC:   return gbcLoad(path);
     case SYS_A2600: return a26Load(path);
     case SYS_GENESIS: return genLoad(path);
+    case SYS_SMS:     return smsLoad(path);
     default:        return false;
   }
 }
@@ -51,6 +53,7 @@ static void coreShutdown(uint8_t system) {
     case SYS_GBC:     gbcShutdown(); break;
     case SYS_A2600:   a26Shutdown(); break;
     case SYS_GENESIS: genShutdown(); break;
+    case SYS_SMS:     smsShutdown(); break;
     case SYS_NES:     nesShutdown(); break;
     default:          break;
   }
@@ -64,6 +67,7 @@ static void coreReset(uint8_t system) {
     case SYS_GBC:   gbcReset(); break;
     case SYS_A2600: a26Reset(); break;
     case SYS_GENESIS: genReset(); break;
+    case SYS_SMS:     smsReset(); break;
     default: break;
   }
 }
@@ -82,6 +86,7 @@ static uint16_t shotPicH(uint8_t sys) {
     case SYS_GBC:   return GBC_OUT_H;
     case SYS_A2600: return A26_OUT_H;
     case SYS_GENESIS: return GAME_H;
+    case SYS_SMS:     return GAME_H;
     default:        return 0;
   }
 }
@@ -93,6 +98,7 @@ static void coreFrame(uint8_t system, bool draw) {
     case SYS_GBC:   gbcFrame(draw); break;
     case SYS_A2600: a26Frame(draw); break;
     case SYS_GENESIS: genFrame(draw); break;
+    case SYS_SMS:     smsFrame(draw); break;
     default: break;
   }
 }
@@ -104,6 +110,7 @@ static bool coreSaveState(uint8_t system, uint8_t slot) {
     case SYS_GBC:   return gbcStateSave(slot);
     case SYS_A2600: return a26::stateSave(slot);
     case SYS_GENESIS: return gen::stateSave(slot);
+    case SYS_SMS:     return sms::stateSave(slot);
     default:        return false;
   }
 }
@@ -115,6 +122,7 @@ static bool coreLoadState(uint8_t system, uint8_t slot) {
     case SYS_GBC:   return gbcStateLoad(slot);
     case SYS_A2600: return a26::stateLoad(slot);
     case SYS_GENESIS: return gen::stateLoad(slot);
+    case SYS_SMS:     return sms::stateLoad(slot);
     default:        return false;
   }
 }
@@ -127,6 +135,7 @@ static bool coreRomReadFailed(uint8_t system) {
     case SYS_GBC: return gcRomReadError;
     case SYS_A2600: return a26RomReadFailed();
     case SYS_GENESIS: return genRomReadFailed();
+    case SYS_SMS:     return smsRomReadFailed();
     default:      return false;
   }
 }

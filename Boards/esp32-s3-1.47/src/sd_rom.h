@@ -2,10 +2,10 @@
 // Keep this module included after the system enum, directory defines and Arduino/SD headers.
 #pragma once
 
-static const char *const sysName[SYS_COUNT]  = { "NES", "GAME BOY", "GAME BOY COLOR", "ATARI 2600", "SEGA GENESIS" };
-static const char *const sysShort[SYS_COUNT] = { "NES", "GB", "GBC", "2600", "GEN" };
-static const char *const sysSub[SYS_COUNT]   = { "8-BIT CONSOLE", "HANDHELD", "COLOR HANDHELD", "VCS CONSOLE", "16-BIT CONSOLE" };
-static const char *const sysDir[SYS_COUNT]   = { NES_DIR, GB_DIR, GBC_DIR, A2600_DIR, GENESIS_DIR };
+static const char *const sysName[SYS_COUNT]  = { "NES", "GAME BOY", "GAME BOY COLOR", "ATARI 2600", "SEGA GENESIS", "MASTER SYSTEM" };
+static const char *const sysShort[SYS_COUNT] = { "NES", "GB", "GBC", "2600", "GEN", "SMS" };
+static const char *const sysSub[SYS_COUNT]   = { "8-BIT CONSOLE", "HANDHELD", "COLOR HANDHELD", "VCS CONSOLE", "16-BIT CONSOLE", "8-BIT CONSOLE" };
+static const char *const sysDir[SYS_COUNT]   = { NES_DIR, GB_DIR, GBC_DIR, A2600_DIR, GENESIS_DIR, SMS_DIR };
 
 // Longest supported FAT filename (255 bytes) plus system directory and terminator.
 static const size_t ROM_PATH_LEN = 288;
@@ -719,11 +719,11 @@ static bool sdInitFolders() {
   }
   static const char *const dirs[] = {
     "/roms", "/system",
-    "/roms/nes", "/roms/gb", "/roms/gbc", "/roms/a2600", "/roms/genesis",
+    "/roms/nes", "/roms/gb", "/roms/gbc", "/roms/a2600", "/roms/genesis", "/roms/sms",
     "/saves", "/saves/gb", "/saves/gbc",
-    "/states", "/states/gb", "/states/gbc", "/states/nes", "/states/a2600", "/states/genesis",
+    "/states", "/states/gb", "/states/gbc", "/states/nes", "/states/a2600", "/states/genesis", "/states/sms",
     // Optional per-ROM PNG cover art, organized by system.
-    "/imgs", "/imgs/nes", "/imgs/gb", "/imgs/gbc", "/imgs/a2600", "/imgs/genesis",
+    "/imgs", "/imgs/nes", "/imgs/gb", "/imgs/gbc", "/imgs/a2600", "/imgs/genesis", "/imgs/sms",
     // Only handheld systems with optional boot ROM support have BIOS folders.
     // NES and Atari 2600 do not use a separate BIOS in these cores.
     "/bios", "/bios/gb", "/bios/gbc"
@@ -789,6 +789,7 @@ static int sdSystemForRomPath(const char *path) {
 static bool isRomName(const char *n) {
   if (curSys == SYS_NES) return hasExt(n, ".nes");
   if (curSys == SYS_A2600) return hasExt(n, ".a26") || hasExt(n, ".bin");
+  if (curSys == SYS_SMS) return hasExt(n, ".sms") || hasExt(n, ".bin");
   if (curSys == SYS_GENESIS) return hasExt(n, ".md") || hasExt(n, ".gen") || hasExt(n, ".bin");
   // GBC-compatible cartridges are commonly distributed with either .gbc
   // or .gb extensions. The selected system determines the emulator core, so

@@ -5,13 +5,14 @@
 //  Target board : ESP32-S3-LCD-1.54 / ESP32-S3-Touch-LCD-1.54 (JD9853/ST7789-compatible 240x240 LCD + touch + microSD)
 //  Orientation  : starts portrait 240x240 (see LCD_ROT_DEFAULT below if it boots upside down); SELECT+RB cycles all 4 orientations; SELECT+RT saves a screenshot
 //  Startup      : Emu32 logo splash screen, then the main menu
-//  Main menu    : pick a system - NES, GAME BOY, GAME BOY COLOR or ATARI 2600 (UP/DOWN, then A = select)
+//  Main menu    : pick a system - NES, GAME BOY, GAME BOY COLOR, ATARI 2600, GENESIS or MASTER SYSTEM (UP/DOWN, then A = select)
 //  Game list    : lists the ROMs of that system from the SD card:
 //                   NES      /roms/nes   *.nes
 //                   GAME BOY /roms/gb    *.gb, *.gbc
 //                   GAME BOY COLOR /roms/gbc  *.gbc, *.gb
 //                   ATARI 2600 /roms/a2600  *.a26, *.bin
 //                   GENESIS    /roms/genesis *.md, *.gen, *.bin
+//                   MASTER SYS /roms/sms     *.sms, *.bin
 //                 UP/DOWN = move, LEFT/RIGHT = page, A (or START) = play,
 //                 B (or SELECT) = back to the main menu
 //                 In a game, hold SELECT+START (or A+B+SELECT) 1 s to return to the game list;
@@ -55,6 +56,7 @@
 #define GBC_DIR       "/roms/gbc"
 #define A2600_DIR     "/roms/a2600"
 #define GENESIS_DIR   "/roms/genesis"
+#define SMS_DIR       "/roms/sms"
 #define ROM_LIST_INITIAL_CAPACITY 32 // grows as needed, limited by available heap
 #define ROM_NAME_LEN  256        // supports full SD/FAT filenames (up to 255 bytes)
 #define MENU_ROW_H    15
@@ -192,7 +194,7 @@ static const int8_t padPins[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 // readPad() (GPIO + Bluetooth), read by the menus and both emulators.
 static uint8_t padState;
 
-enum : uint8_t { SYS_NES = 0, SYS_GB = 1, SYS_GBC = 2, SYS_A2600 = 3, SYS_GENESIS = 4, SYS_COUNT = 5 };
+enum : uint8_t { SYS_NES = 0, SYS_GB = 1, SYS_GBC = 2, SYS_A2600 = 3, SYS_GENESIS = 4, SYS_SMS = 5, SYS_COUNT = 6 };
 static uint8_t curSys = SYS_NES;                 // system of the running / selected game
 // false in the menus: a Bluetooth pad uses its own native layout (A = OK, B = back).
 // true while a game runs: the pad is remapped to the emulated system's layout.
@@ -229,6 +231,7 @@ static void settingsSave();
 #include "src/gbc_core.h"
 #include "src/a2600_core.h"
 #include "src/genesis_core.h"
+#include "src/sms_core.h"
 #include "src/core_manager.h"
 #include "src/audio_synth.h"
 

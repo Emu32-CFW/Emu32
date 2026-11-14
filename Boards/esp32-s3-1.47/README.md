@@ -1,5 +1,5 @@
 # Emu32 for the ESP32-S3-Touch-LCD-1.47
-Port of Emu32 (NES / Game Boy / Game Boy Color / Atari 2600 / Sega Genesis) from the ESP32-C6-LCD-1.47 to the
+Port of Emu32 (NES / Game Boy / Game Boy Color / Atari 2600 / Sega Genesis / Sega Master System) from the ESP32-C6-LCD-1.47 to the
 **ESP32-S3-Touch-LCD-1.47** (ESP32-S3R8, 16 MB flash, 1.47" ST7789 172x320 LCD, microSD, WS2812 LED).
 
 ## What changed vs. the C6 version
@@ -38,6 +38,7 @@ Nintendo Gameboy
 Nintendo Gameboy Color
 Atari 2600
 Sega Genesis / Mega Drive (basic)
+Sega Master System (basic)
 
 # SD Format
 SD card must be formatted to FAT32.
@@ -47,6 +48,7 @@ SD card must be formatted to FAT32.
 /roms/gbc/     *.gbc, *.gb
 /roms/a2600/   *.a26, *.bin
 /roms/genesis/ *.md, *.gen, *.bin
+/roms/sms/     *.sms, *.bin
 /bios/gb/     *dmg_boot.bin
 /bios/gbc/     *cgb_boot.bin
 
@@ -82,6 +84,7 @@ must match the ROM filename without its extension (including spaces and punctuat
 - `/imgs/gbc/<ROM name>.png`
 - `/imgs/a2600/<ROM name>.png`
 - `/imgs/genesis/<ROM name>.png`
+- `/imgs/sms/<ROM name>.png`
 
 For example, `/roms/gb/Pokemon.gb` uses `/imgs/gb/Pokemon.png`. The browser
 preserves the PNG's aspect ratio and scales it into the selected game's preview.
@@ -94,9 +97,9 @@ the firmware still builds and displays a `PNGDEC NEEDED` placeholder.
 ## Save states
 
 The pause menu provides **SAVE STATE**, **LOAD STATE**, and a three-slot
-**STATE SLOT** selector for NES, Game Boy, Game Boy Color, Atari 2600, and Sega
-Genesis. State files are stored separately from battery saves in `/states/nes/`,
-`/states/gb/`, `/states/gbc/`, `/states/a2600/`, and `/states/genesis/`. ROM-path-based names avoid
+**STATE SLOT** selector for NES, Game Boy, Game Boy Color, Atari 2600, Sega
+Genesis, and Sega Master System. State files are stored separately from battery saves in `/states/nes/`,
+`/states/gb/`, `/states/gbc/`, `/states/a2600/`, `/states/genesis/`, and `/states/sms/`. ROM-path-based names avoid
 collisions between games with the same filename in different directories.
 NES snapshots preserve CPU/PPU state, RAM, mapper bank mappings, and CHR RAM
 when present. Atari 2600 snapshots preserve CPU, RIOT/TIA state, cartridge bank
@@ -177,3 +180,21 @@ The LCD remains on the default SPI host.
 - **SD clock 20 MHz** (`SD_FREQ_HZ`): faster game loading and ROM page-cache refills. If the card refuses it, the mount automatically retries at `SD_FREQ_SAFE_HZ` (10 MHz). If you get random `ROM READ ERROR`s, set `SD_FREQ_HZ` back to 10000000UL.
 - **Optional, not enabled:** `LCD_SPI_HZ` is still 40 MHz. The S3 can drive many ST7789 panels at 80000000 (halves the transfer time); try it, and go back to 40000000 if the picture shows noise.
 - Send `p` over Serial (115200) to print per-second core/audio frame timings.
+
+## Sega Master System core (basic)
+
+`src/sms_core.h` adds a Master System core (system menu entry **MASTER SYSTEM**, ROMs in `/roms/sms/`,
+states in `/states/sms/`, art in `/imgs/sms/`). `.sms` / `.bin` dumps from 8 KB to 4 MB (a 512-byte copier
+header is stripped automatically). The whole ROM is loaded into PSRAM at launch (Tools > PSRAM > **OPI PSRAM**
+must be enabled), so no SD access happens while a game runs except for save states.
+
+**Emulated:** Z80 (all documented opcodes plus the usual undocumented ones, IM 0/1/2, NMI, T-state timing);
+VDP Mode 4 with 192/224/240 lines, background H/V scroll with the top-row and right-column locks, priority
+tiles, 8x8 / 8x16 / zoomed sprites with the 8-per-line limit and overflow/collision flags, left-column mask,
+line and frame interrupts, V/H counters; Sega mapper with 32 KB cart RAM and the Codemasters mapper (auto-detected);
+pad 1; SN76489 PSG (this board has no audio output, so it is silent); save states (CPU, VDP, RAM, VRAM, cart RAM).
+
+**Controls:** pad A = button 1, pad B = button 2, **START = PAUSE** (the console's NMI button).
+
+**Not emulated (yet):** SG-1000 / TMS9918 legacy modes, Game Gear, the FM sound unit, light gun, paddle and port 2,
+PAL timing (always 60 Hz), the BIOS (cartridges boot directly), battery SRAM files (use save states).

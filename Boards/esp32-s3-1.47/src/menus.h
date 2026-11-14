@@ -672,7 +672,7 @@ static void sysMenuDraw(int sel, int top, int status) {
   }
 }
 
-// Returns SYS_NES, SYS_GB, SYS_GBC or SYS_A2600.
+// Returns the chosen system id (SYS_NES ... SYS_SMS), or -1.
 static int gamesSystemMenu() {
   const int itemCount = SYS_COUNT;
   const int visible = sysMenuVisibleRows();
