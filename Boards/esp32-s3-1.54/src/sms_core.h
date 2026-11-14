@@ -650,7 +650,8 @@ static void reset() {
   applyMap();
   AF.w = 0xFFFF; BC.w = DE.w = HL.w = 0; AF2.w = BC2.w = DE2.w = HL2.w = 0;
   IX.w = IY.w = 0xFFFF; SP = 0xDFF0; PC = 0; Ireg = Rreg = 0; IM = 1;
-  IFF1 = IFF2 = false; halted = false; eiDelay = false; nmiPend = false; startPrev = false;
+  IFF1 = IFF2 = false; halted = false; eiDelay = false; nmiPend = false;
+  startPrev = (padState & 0x08) != 0;                     // START still held from the menu must not fire a PAUSE NMI
   cyc = 0; lineBase = 0;
   if (fb) memset(fb, 0, GAME_W * GAME_H * 2);
 }
