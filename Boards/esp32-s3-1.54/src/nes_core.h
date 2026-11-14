@@ -428,7 +428,7 @@ static void ioWrite(uint16_t a, uint8_t v) {
     if (padStrobe && !nextStrobe) padShift = padState;
     padStrobe = nextStrobe;
   }
-  else if (a >= 0x4000 && a <= 0x4017) nesApu[a - 0x4000] = v;
+  else if (a >= 0x4000 && a <= 0x4017) { nesApu[a - 0x4000] = v; AudioEv::nesWr((uint8_t)(a - 0x4000), v); }
 }
 
 static inline uint8_t rd(uint16_t a) {

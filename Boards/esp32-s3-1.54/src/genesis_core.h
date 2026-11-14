@@ -312,7 +312,8 @@ static void wr16(uint32_t ad, uint16_t v) {
   if (ad >= 0xE00000) { const uint32_t off = ad & 0xFFFE; ram[off] = v >> 8; ram[off + 1] = v & 0xFF; return; }
   if ((ad & 0xE00000) == 0xC00000) {
     const int p = (ad & 0x1F) >> 1;
-    if (p < 2) vdpDataWrite(v); else if (p < 4) vdpCtrlWrite(v);   // PSG / others ignored
+    if (p < 2) vdpDataWrite(v); else if (p < 4) vdpCtrlWrite(v);
+    else if (p >= 8) AudioEv::psgWr((uint8_t)(v & 0xFF));              // SN76489 PSG at $C00011 (also $C00013..)
     return;
   }
   if (ad >= 0xA00000 && ad < 0xA10000) {
@@ -328,7 +329,7 @@ static void wr8(uint32_t ad, uint8_t v) {
   ad &= 0xFFFFFF;
   if (ad >= 0xE00000) { cyc += 4; ram[ad & 0xFFFF] = v; return; }
   if (ad >= 0xA00000 && ad < 0xA02000) { cyc += 4; zram[ad & 0x1FFF] = v; return; }
-  if (ad >= 0xA04000 && ad < 0xA04004) { cyc += 4; const int port = (ad >> 1) & 1; if (ad & 1) ymReg[port][ymAddr[port]] = v; else ymAddr[port] = v; return; }
+  if (ad >= 0xA04000 && ad < 0xA04004) { cyc += 4; const int port = (ad >> 1) & 1; if (ad & 1) { ymReg[port][ymAddr[port]] = v; AudioEv::ymWr(port, ymAddr[port], v); } else ymAddr[port] = v; return; }
   if (ad >= 0xA10000 && ad < 0xA10020) { cyc += 4; if (ad & 1) ioWrite(ad, v); return; }
   if (ad == 0xA11100) { cyc += 4; zBusReq = v & 1; return; }
   if (ad == 0xA11200) { cyc += 4; zReset = !(v & 1); return; }

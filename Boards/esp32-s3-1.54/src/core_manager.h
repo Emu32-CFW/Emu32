@@ -57,6 +57,7 @@ static void coreShutdown(uint8_t system) {
 }
 
 static void coreReset(uint8_t system) {
+  AudioEv::resetAll();                           // clear sound-chip event state before the core re-initialises
   switch (system) {
     case SYS_NES:   nesReset(); break;
     case SYS_GB:    gbReset(); break;

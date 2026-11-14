@@ -304,6 +304,7 @@ static IRAM_ATTR uint8_t gbIoRd(uint8_t r) {
 }
 
 static IRAM_ATTR void gbIoWr(uint8_t r, uint8_t v) {
+  if (r >= 0x10 && r <= 0x3F) AudioEv::gbWr(0, r, v);   // sound registers: let the synth see the event
   switch (r) {
     case 0x50: if (v && gGbBootActive) { gGbBootActive = false; } gIo[r] = v; break;
     case 0x00: gJoySel = v & 0x30; break;

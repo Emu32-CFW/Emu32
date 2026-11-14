@@ -428,6 +428,7 @@ static GBC_FAST uint8_t gbcIoRd(uint8_t r) {
 }
 
 static GBC_FAST void gbcIoWr(uint8_t r, uint8_t v) {
+  if (r >= 0x10 && r <= 0x3F) AudioEv::gbWr(1, r, v);   // sound registers: let the synth see the event
   switch (r) {
     case 0x00: gcJoySel = v & 0x30; break;
     case 0x02:

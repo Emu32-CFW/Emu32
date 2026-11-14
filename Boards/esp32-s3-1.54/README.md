@@ -200,14 +200,18 @@ Hardware target: Arduino IDE **ESP32S3 Dev Module**, ESP32 Arduino core 3.x, 16M
 
 ## Game audio
 
-`src/audio.h` drives the board's I2S output at moderate gain (1/2 software amplitude plus a lower codec level targeting ~50% volume), with no startup beep; optional speaker test via serial `t` command. `src/audio_synth.h` adds lightweight register-driven sound generators for all five systems: NES (two pulse channels, triangle and noise), Game Boy and Game Boy Color (four-channel APU approximation), Atari 2600 (two TIA sound channels), and Genesis (SN76489 PSG plus a lightweight YM2612 tone approximation). Audio is mixed to mono signed 16-bit PCM at 22.05 kHz and sent once per emulated frame.
+`src/audio.h` drives the board's ES8311/NS4150B output over I2S (default **32 kHz**, mono duplicated to both slots; set `EMU32_AUDIO_SAMPLE_RATE` back to 22050 if CPU headroom is tight). The software volume is now slewed (about 10 ms) so changing it in the pause menu no longer clicks.
 
-This is a compact approximation rather than cycle-accurate sound-chip emulation: envelope/sweep details, Game Boy wave RAM playback, full Genesis FM operator algorithms, and per-cycle synchronization are not complete. It should produce game-dependent sound rather than only a startup diagnostic beep. Board audio wiring and codec support still depend on the exact board revision.
+`src/audio_events.h` is a small hook layer: the cores call it whenever a game writes a sound register (NES `$4000-$4017`, GB/GBC `$FF10-$FF3F`, Genesis PSG and YM2612 ports). It applies the event side of each chip: length-counter loads, envelope restarts, sweep reloads, triggers, YM key-on/off and DAC samples. `src/audio_synth.h` applies the timed side and renders audio once per emulated frame:
 
+- All square/noise/wave channels are area-sampled (box filtered), so high notes no longer alias.
+- NES: length counters, volume envelopes, sweep units, duty patterns, correct noise period table and short mode, linear counter, nesdev non-linear mixer. DMC sample playback is still not emulated (only the `$4011` level).
+- Game Boy / GBC: frame sequencer with length, envelope and channel-1 sweep, real wave RAM playback, NR50/NR51 mixing.
+- Atari 2600: correct AUDC/AUDF/AUDV register mapping and TIA divider/poly waveforms at the real 31.4 kHz audio clock.
+- Genesis: SN76489 PSG (previously never fed, so silent), 4-operator YM2612 FM with all 8 algorithms, feedback and ADSR, correct pitch, per-channel key-on, and channel-6 DAC samples. The Z80 is still not emulated, so games whose sound driver runs on the Z80 stay silent.
+- Output stage: 25 Hz DC blocker, 9 kHz low-pass (`EMU32_LP_HZ`), soft limiter, 30 ms fade-in after reset. Overall level is `EMU32_SYNTH_PEAK` (default 12000).
 
-### Restart performance fix
-
-The firmware now explicitly restores the ESP32-S3 CPU clock to 240 MHz during every boot and prints the resulting clock to Serial Monitor. This prevents builds configured for dynamic/reduced CPU frequency from leaving emulator timing and audio processing running too slowly after a restart.
+Still approximations rather than cycle-accurate chips: YM2612 LFO/SSG-EG/detune/rate scaling and channel-3 special mode, GB per-cycle timing, and TIA paddle/PCM tricks that rewrite registers many times per frame. Optional speaker test: serial `t`.
 
 ## Physical power button
 

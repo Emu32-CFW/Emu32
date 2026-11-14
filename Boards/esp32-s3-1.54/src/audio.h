@@ -7,7 +7,7 @@
 #include <math.h>
 
 #ifndef EMU32_AUDIO_SAMPLE_RATE
-#define EMU32_AUDIO_SAMPLE_RATE 22050
+#define EMU32_AUDIO_SAMPLE_RATE 32000   // was 22050; the ES8311 setup below is valid for any rate with MCLK = 256 x rate. Set back to 22050 if CPU headroom is tight.
 #endif
 #ifndef EMU32_AUDIO_BLOCK_SAMPLES
 #define EMU32_AUDIO_BLOCK_SAMPLES 256
@@ -27,9 +27,12 @@ namespace EmuAudio {
   static constexpr int SOFTWARE_GAIN_NUM = 1;
   static constexpr int SOFTWARE_GAIN_DEN = 2; // Keep the hardware-safe maximum at 50% PCM amplitude
   static uint8_t volumePercent = 50; // User-adjustable in-game volume: 0..100% of the safe maximum
+  static int32_t volGain = -1;       // smoothed gain, 0..65536 (avoids zipper noise/clicks when the volume changes)
 
   inline void setVolume(uint8_t percent) { volumePercent = percent > 100 ? 100 : percent; }
   inline uint8_t getVolume() { return volumePercent; }
+
+  static constexpr int32_t VOL_SLEW = 65536 / (EMU32_AUDIO_SAMPLE_RATE / 100); // full range in ~10 ms
 
   static I2SClass i2s;
   static bool ready = false;
@@ -59,7 +62,7 @@ namespace EmuAudio {
     ok &= writeCodecReg(0x00, 0x80); // power on
     delay(10);
     ok &= writeCodecReg(0x01, 0x3F); // enable codec clocks
-    // 22.05 kHz, 16-bit I2S slave input, MCLK = sample rate * 256.
+    // 16-bit I2S slave input, MCLK = sample rate * 256 (the dividers below are the same for every rate at 256fs).
     ok &= writeCodecReg(0x02, 0x00);
     ok &= writeCodecReg(0x03, 0x10);
     ok &= writeCodecReg(0x04, 0x10);
@@ -139,7 +142,12 @@ namespace EmuAudio {
       for (size_t i = 0; i < n; ++i) {
         // Apply a software gain cap to avoid clipping while keeping game audio audible.
         int32_t quiet = ((int32_t)samples[done + i] * SOFTWARE_GAIN_NUM) / SOFTWARE_GAIN_DEN;
-        quiet = (quiet * volumePercent) / 100; // Exact silence at 0%, safe maximum at 100%
+        // Slew the gain toward the target (about 10 ms for a full-range change) instead of jumping.
+        const int32_t target = ((int32_t)volumePercent * 65536) / 100;
+        if (volGain < 0) volGain = target;
+        if (volGain < target) { volGain += VOL_SLEW; if (volGain > target) volGain = target; }
+        else if (volGain > target) { volGain -= VOL_SLEW; if (volGain < target) volGain = target; }
+        quiet = (int32_t)(((int64_t)quiet * volGain) >> 16); // Exact silence at 0%, safe maximum at 100%
         block[i * 2] = (int16_t)quiet;
         block[i * 2 + 1] = (int16_t)quiet;
       }

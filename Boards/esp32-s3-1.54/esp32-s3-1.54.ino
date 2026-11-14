@@ -223,6 +223,7 @@ static void settingsSave();
 //  Emulators (both use lcdWindow/lcdCfg/outLine/col565/padState/loadErr1-2 above;
 //  keep nes_core.h and gb_core.h in the sketch folder)
 // ============================================================================
+#include "src/audio_events.h"
 #include "src/nes_core.h"
 #include "src/gb_core.h"
 #include "src/gbc_core.h"
