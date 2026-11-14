@@ -682,8 +682,8 @@ static void frame(bool draw) {
   if (!romOk || !fb) return;
   vdpH = 192;
   if (reg[0] & 0x04) {                                    // Mode 4 only
-    if ((reg[0] & 0x02) && (reg[1] & 0x08)) vdpH = 224;
-    else if ((reg[0] & 0x02) && (reg[1] & 0x10)) vdpH = 240;
+    if ((reg[0] & 0x02) && (reg[1] & 0x10)) vdpH = 224;      // M2 + M1
+    else if ((reg[0] & 0x02) && (reg[1] & 0x08)) vdpH = 240;  // M2 + M3
   }
   if (mapH != vdpH) rebuildMaps();
   const bool st = (padState & 0x08) != 0;                 // START = PAUSE (NMI on the press)
