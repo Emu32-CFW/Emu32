@@ -70,6 +70,19 @@ Menus: UP/DOWN move, A select, B back.
 
 In game: hold SELECT+START for 1 s to quit. SELECT+RB rotates the screen. SELECT+X opens the pause menu (Xbox pad). SELECT+RT (right trigger) saves a screenshot as a PNG to /screenshots on the SD card (/screenshots/<ROM name>_NNN.png); a short "SHOT NNN SAVED" label appears on screen but is not part of the image.
 
+File explorer (Tools > FILE EXPLORER, Bluetooth pad): UP/DOWN move, A open a folder / show file info, B go up a folder (or leave at the root).
+**X** marks or unmarks the highlighted item (marked rows show a `+`); mark as many as you like. **Y** opens an action sheet:
+
+| Action | What it does |
+|---|---|
+| COPY / CUT | Put the marked items (or the highlighted one if nothing is marked) on the clipboard. Marks are cleared and the footer shows the clipboard count. |
+| PASTE | Paste the clipboard into the folder you are viewing. Name clashes become `name_1.ext`, `name_2.ext`, ... (nothing is overwritten). Copies are read back and verified; CUT is an instant move. Pasting a folder into itself is refused. |
+| DELETE | Permanently delete the marked items (or the highlighted one) after a confirmation that defaults to NO. Folders are deleted with everything inside. |
+| SELECT ALL / CLEAR SELECTION | Mark every item in the folder / clear all marks. |
+
+Press A to choose, B or Y to close the sheet. Marks apply to the current folder only (they clear when you change folder or after a paste or delete); the clipboard survives folder changes so you can copy in one folder and paste in another, and is emptied when you leave the explorer.
+X and Y exist only on the Bluetooth pad. The file list still shows at most 48 entries per folder, and names of 64 characters or more are not listed.
+
 # Disclaimer
 You must supply your own ROMs and BIOS files. Console names and games are trademarks of their owners and creators.
 

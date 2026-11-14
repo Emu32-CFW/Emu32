@@ -723,17 +723,31 @@ static int gamesSystemMenu() {
 }
 
 // ---- SD-card file explorer ---------------------------------------------------
-// Browse directories and inspect file names/sizes without modifying card data.
+// Browse the card, mark items with X (several allowed), and press Y for an action
+// sheet: COPY / CUT / PASTE / DELETE / SELECT ALL / CLEAR SELECTION. With nothing
+// marked, COPY / CUT / DELETE act on the highlighted item. X and Y need a
+// Bluetooth pad; the wired/8-bit pad state has no spare bits for them.
 #define FILE_EXPLORER_MAX_ENTRIES 48
-struct FileExplorerEntry { char name[64]; bool isDir; uint32_t size; };
+#define FILE_EXPLORER_NAME_LEN 64
+#define FILE_EXPLORER_PATH_LEN 192
+struct FileExplorerEntry { char name[FILE_EXPLORER_NAME_LEN]; bool isDir; uint32_t size; };
 static FileExplorerEntry fileExplorerEntries[FILE_EXPLORER_MAX_ENTRIES];
 static int fileExplorerCount = 0;
 static bool fileExplorerTruncated = false;
 static char fileExplorerPath[192] = "/";
 static char fileExplorerStatus[48] = "";
+static bool fileExplorerMarked[FILE_EXPLORER_MAX_ENTRIES];   // X-marked rows in the current folder
+static int  fileExplorerMarkedCount = 0;
+// Clipboard (filled by COPY / CUT, consumed by PASTE); names live on the heap.
+static char  fileClipDir[192] = "";
+static char *fileClipNames = nullptr;
+static int   fileClipCount = 0;
+static bool  fileClipCut = false;
 
 static void fileExplorerScan() {
   fileExplorerCount = 0;
+  memset(fileExplorerMarked, 0, sizeof(fileExplorerMarked));   // marks never outlive a scan
+  fileExplorerMarkedCount = 0;
   fileExplorerTruncated = false;
   if (strcmp(fileExplorerPath, "/") != 0) {
     strlcpy(fileExplorerEntries[fileExplorerCount].name, "..", sizeof(fileExplorerEntries[0].name));
@@ -829,22 +843,40 @@ static void fileExplorerDraw(int selected, int top, const char *message) {
     if (y + rowH > LCD_H - 18) break;
     if (idx >= fileExplorerCount) break;
     FileExplorerEntry &e = fileExplorerEntries[idx];
+    const bool marked = fileExplorerMarked[idx];
     char label[72];
-    snprintf(label, sizeof(label), "%c %s", e.isDir ? '[' : ' ', e.name);
+    // Two marker columns: '+' = marked with X, '[' = folder.
+    snprintf(label, sizeof(label), "%c%c %s", marked ? '+' : ' ', e.isDir ? '[' : ' ', e.name);
     menuFitLabel(label, sizeof(label), LCD_W, 1, 3);
     bool isSel = idx == selected;
-    uint16_t bg = isSel ? uiBlue() : ((row & 1) ? uiPanel2() : uiBg());
-    lcdTextRow(y, rowH, label, 1, isSel ? uiWhite() : (e.isDir ? uiAccent() : uiMuted()), bg, 3);
+    uint16_t bg = isSel ? uiBlue() : (marked ? col565(60, 46, 12) : ((row & 1) ? uiPanel2() : uiBg()));
+    uint16_t fg = marked ? uiWarn() : (isSel ? uiWhite() : (e.isDir ? uiAccent() : uiMuted()));
+    lcdTextRow(y, rowH, label, 1, fg, bg, 3);
     if (isSel) lcdFill(0, y, 3, rowH, uiAccent());
   }
   if (!fileExplorerCount) {
     const char *empty = "EMPTY FOLDER";
     lcdTextRow(LCD_H/2-8, 17, empty, 1, uiMuted(), uiBg(), (LCD_W-textW(empty,1))/2);
   }
+  // Footer priority: action result / error, list-full warning, then the
+  // current selection + clipboard summary, then the default key hints.
   char footer[48];
-  if (fileExplorerTruncated) strlcpy(footer, "LIST FULL  A OPEN  B BACK", sizeof(footer));
-  else if (message && message[0]) strlcpy(footer, message, sizeof(footer));
-  else strlcpy(footer, "A OPEN  B BACK  UP/DN", sizeof(footer));
+  if (message && message[0]) {
+    strlcpy(footer, message, sizeof(footer));
+  } else if (fileExplorerTruncated) {
+    strlcpy(footer, "LIST FULL  X SEL  Y MENU", sizeof(footer));
+  } else if (fileExplorerMarkedCount > 0 || fileClipCount > 0) {
+    int n = 0;
+    footer[0] = '\0';
+    if (fileExplorerMarkedCount > 0)
+      n += snprintf(footer + n, sizeof(footer) - n, "%d SEL  ", fileExplorerMarkedCount);
+    if (fileClipCount > 0 && n < (int)sizeof(footer))
+      n += snprintf(footer + n, sizeof(footer) - n, "%d %s  ", fileClipCount, fileClipCut ? "CUT" : "COPIED");
+    if (n < (int)sizeof(footer))
+      snprintf(footer + n, sizeof(footer) - n, "Y MENU");
+  } else {
+    strlcpy(footer, "A OPEN  B BACK  X SEL  Y MENU", sizeof(footer));
+  }
   lcdTextRow(LCD_H-18, 18, footer, 1, uiMuted(), uiPanel());
 }
 
@@ -880,21 +912,480 @@ static void fileExplorerFileInfo(const char *path, const char *name, uint32_t si
   }
 }
 
+// ---- selection, clipboard and file operations --------------------------------
+// X (mark) and Y (action sheet) exist only on the Bluetooth pad: the 8-bit
+// padState has no spare bits, so they are read from the raw bleBtn state.
+#define FX_FS EMU32_SETTINGS_FS
+#define FX_MAX_DEPTH 5          // deepest folder nesting copy / delete will follow
+#define FX_MAX_SUBDIRS 16       // subfolders remembered per folder while copying
+#define FX_FS_NAME 128          // longest single name handled during copy / delete
+
+static char fxErr[28] = "";     // reason for the most recent failure (shown in footer)
+static void fxFail(const char *why) { strlcpy(fxErr, why, sizeof(fxErr)); }
+
+static inline uint16_t fxRawButtons() { return padLinked() ? (uint16_t)bleBtn : 0; }
+
+static void fxWaitRelease(uint32_t maxMs) {
+  const uint32_t t0 = millis();
+  do { readPad(); bleTick(); delay(10); } while ((padState || fxRawButtons()) && millis() - t0 < maxMs);
+}
+
+static bool fxIsParent(int idx) {
+  return idx >= 0 && idx < fileExplorerCount && fileExplorerEntries[idx].isDir &&
+         !strcmp(fileExplorerEntries[idx].name, "..");
+}
+
+// What COPY / CUT / DELETE act on: every marked item, or (when nothing is
+// marked) the highlighted item. The synthetic ".." entry is never a target.
+static int fxTargetCount(int sel) {
+  if (fileExplorerMarkedCount > 0) return fileExplorerMarkedCount;
+  return (sel >= 0 && sel < fileExplorerCount && !fxIsParent(sel)) ? 1 : 0;
+}
+static bool fxIsTarget(int idx, int sel) {
+  if (idx < 0 || idx >= fileExplorerCount || fxIsParent(idx)) return false;
+  return fileExplorerMarkedCount > 0 ? fileExplorerMarked[idx] : idx == sel;
+}
+static void fxRecountMarks() {
+  int n = 0;
+  for (int i = 0; i < fileExplorerCount; ++i) if (fileExplorerMarked[i]) ++n;
+  fileExplorerMarkedCount = n;
+}
+static void fxToggleMark(int idx) {
+  if (idx < 0 || idx >= fileExplorerCount || fxIsParent(idx)) return;
+  fileExplorerMarked[idx] = !fileExplorerMarked[idx];
+  fxRecountMarks();
+}
+static void fxSelectAll() {
+  for (int i = 0; i < fileExplorerCount; ++i) fileExplorerMarked[i] = !fxIsParent(i);
+  fxRecountMarks();
+}
+static void fxClearMarks() {
+  memset(fileExplorerMarked, 0, sizeof(fileExplorerMarked));
+  fileExplorerMarkedCount = 0;
+}
+
+// Clipboard: the folder the items came from plus their names (heap, sized to fit).
+static const char *fileClipName(int i) { return fileClipNames + (size_t)i * FILE_EXPLORER_NAME_LEN; }
+static void fileClipClear() {
+  if (fileClipNames) free(fileClipNames);
+  fileClipNames = nullptr; fileClipCount = 0; fileClipCut = false; fileClipDir[0] = '\0';
+}
+static bool fxClipStore(bool cut, int sel) {
+  const int n = fxTargetCount(sel);
+  if (n <= 0) return false;
+  char *buf = (char *)malloc((size_t)n * FILE_EXPLORER_NAME_LEN);
+  if (!buf) return false;                       // old clipboard stays intact
+  int k = 0;
+  for (int i = 0; i < fileExplorerCount && k < n; ++i) {
+    if (!fxIsTarget(i, sel)) continue;
+    strlcpy(buf + (size_t)k * FILE_EXPLORER_NAME_LEN, fileExplorerEntries[i].name, FILE_EXPLORER_NAME_LEN);
+    ++k;
+  }
+  fileClipClear();
+  fileClipNames = buf; fileClipCount = k; fileClipCut = cut;
+  strlcpy(fileClipDir, fileExplorerPath, sizeof(fileClipDir));
+  return k > 0;
+}
+
+// ---- path helpers ------------------------------------------------------------
+static bool fxIsInside(const char *path, const char *root) {   // path == root or below it
+  const size_t n = strlen(root);
+  return strncmp(path, root, n) == 0 && (path[n] == '\0' || path[n] == '/');
+}
+static bool fxIsDir(const char *path) {
+  File f = FX_FS.open(path);
+  const bool d = f && f.isDirectory();
+  if (f) f.close();
+  return d;
+}
+static bool fxCardOk() {
+  File root = FX_FS.open("/");
+  const bool ok = root && root.isDirectory();
+  if (root) root.close();
+  return ok;
+}
+static bool fxEntryName(File &e, char *out, size_t cap) {
+  const char *raw = e.name();
+  const char *base = raw ? strrchr(raw, '/') : nullptr;
+  base = base ? base + 1 : (raw ? raw : "");
+  if (strlen(base) >= cap) return false;
+  strlcpy(out, base, cap);
+  return true;
+}
+// Destination path for `name` inside `dir` that does not exist yet:
+// "name.ext", then "name_1.ext", "name_2.ext" ... (kept under the explorer's
+// name limit so the pasted item still shows up in the list).
+static bool fxUniquePath(char *out, size_t cap, const char *dir, const char *name) {
+  if (!fileExplorerJoin(out, cap, dir, name)) return false;
+  if (!FX_FS.exists(out)) return true;
+  const char *dot = strrchr(name, '.');
+  const bool hasExt = dot && dot != name;
+  const int extLen = hasExt ? (int)strlen(dot) : 0;
+  const int stemFull = hasExt ? (int)(dot - name) : (int)strlen(name);
+  for (int i = 1; i < 100; ++i) {
+    char suffix[8];
+    snprintf(suffix, sizeof(suffix), "_%d", i);
+    const int room = (FILE_EXPLORER_NAME_LEN - 1) - extLen - (int)strlen(suffix);
+    if (room < 1) return false;
+    const int stem = stemFull < room ? stemFull : room;
+    char cand[FILE_EXPLORER_NAME_LEN];
+    snprintf(cand, sizeof(cand), "%.*s%s%s", stem, name, suffix, hasExt ? dot : "");
+    if (!fileExplorerJoin(out, cap, dir, cand)) return false;
+    if (!FX_FS.exists(out)) return true;
+  }
+  return false;
+}
+
+// ---- progress screen -----------------------------------------------------------
+static void fxBusyLine(const char *name) {
+  char label[64];
+  strlcpy(label, name ? name : "", sizeof(label));
+  menuFitLabel(label, sizeof(label), LCD_W, 1, 4);
+  lcdTextRow(LCD_H/2 + 8, 16, label, 1, uiAccent(), uiBg(), 4);
+}
+static void fxBusyStart(const char *title) {
+  lcdFill(0, 0, LCD_W, LCD_H, uiBg());
+  lcdTextRow(LCD_H/2 - 34, 24, title, 2, uiWhite(), uiPanel());
+  lcdTextRow(LCD_H - 18, 18, "PLEASE WAIT - DO NOT REMOVE CARD", 1, uiMuted(), uiPanel());
+}
+static void fxBusyItem(int n, int total, const char *name) {
+  char line[24];
+  snprintf(line, sizeof(line), "ITEM %d OF %d", n, total);
+  lcdTextRow(LCD_H/2 - 6, 14, line, 1, uiMuted(), uiBg(), 4);
+  fxBusyLine(name);
+}
+
+// ---- copy / move / delete -------------------------------------------------------
+static uint8_t *fxCopyBuf = nullptr;
+static size_t   fxCopyBufLen = 0;
+
+static bool fxCopyFile(const char *src, const char *dst) {
+  File in = FX_FS.open(src, FILE_READ);
+  if (!in || in.isDirectory()) { if (in) in.close(); fxFail("CANNOT READ SOURCE"); return false; }
+  const uint32_t total = (uint32_t)in.size();
+  File out = FX_FS.open(dst, FILE_WRITE);
+  if (!out) { in.close(); fxFail("CANNOT CREATE FILE"); return false; }
+  uint32_t done = 0;
+  bool ok = true;
+  while (done < total) {
+    const uint32_t left = total - done;
+    const size_t want = left < fxCopyBufLen ? (size_t)left : fxCopyBufLen;
+    const size_t got = in.read(fxCopyBuf, want);
+    if (got == 0) { fxFail("READ FAILED"); ok = false; break; }
+    if (out.write(fxCopyBuf, got) != got) { fxFail("WRITE FAILED - CARD FULL"); ok = false; break; }
+    done += (uint32_t)got;
+    yield();
+  }
+  in.close();
+  out.close();
+  if (ok) {                                       // verify what actually landed on the card
+    File chk = FX_FS.open(dst, FILE_READ);
+    ok = chk && (uint32_t)chk.size() == total;
+    if (chk) chk.close();
+    if (!ok) fxFail("VERIFY FAILED");
+  }
+  if (!ok) { FX_FS.remove(dst); sdMarkIoFault("file explorer copy"); }
+  return ok;
+}
+
+struct FxLevel {
+  char sub[FX_MAX_SUBDIRS][FX_FS_NAME];
+  char src[FILE_EXPLORER_PATH_LEN];
+  char dst[FILE_EXPLORER_PATH_LEN];
+};
+
+// Recursive folder copy. Files are copied while the folder is being listed;
+// subfolders are only noted and visited after the listing handle is closed, so
+// at most three SD file handles are ever open however deep the tree is.
+static bool fxDeleteTree(const char *path, int depth);
+static bool fxCopyTree(const char *src, const char *dst, int depth) {
+  if (depth > FX_MAX_DEPTH) { fxFail("FOLDER TOO DEEP"); return false; }
+  File dir = FX_FS.open(src);
+  if (!dir || !dir.isDirectory()) { if (dir) dir.close(); fxFail("CANNOT READ FOLDER"); return false; }
+  if (!FX_FS.mkdir(dst)) { dir.close(); fxFail("CANNOT MAKE FOLDER"); return false; }
+  FxLevel *L = (FxLevel *)malloc(sizeof(FxLevel));
+  if (!L) { dir.close(); fxFail("OUT OF MEMORY"); return false; }
+  int nsub = 0;
+  bool ok = true;
+  char name[FX_FS_NAME];
+  File e = dir.openNextFile();
+  while (e && ok) {
+    const bool nameOk = fxEntryName(e, name, sizeof(name));
+    const bool isDir = e.isDirectory();
+    e.close();
+    if (!nameOk) { fxFail("NAME TOO LONG"); ok = false; break; }
+    if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
+      if (isDir) {
+        if (nsub >= FX_MAX_SUBDIRS) { fxFail("TOO MANY SUBFOLDERS"); ok = false; break; }
+        strlcpy(L->sub[nsub++], name, FX_FS_NAME);
+      } else if (!fileExplorerJoin(L->src, sizeof(L->src), src, name) ||
+                 !fileExplorerJoin(L->dst, sizeof(L->dst), dst, name)) {
+        fxFail("PATH TOO LONG"); ok = false; break;
+      } else {
+        fxBusyLine(name);
+        ok = fxCopyFile(L->src, L->dst);
+      }
+    }
+    if (ok) e = dir.openNextFile();
+  }
+  dir.close();
+  for (int i = 0; ok && i < nsub; ++i) {
+    if (!fileExplorerJoin(L->src, sizeof(L->src), src, L->sub[i]) ||
+        !fileExplorerJoin(L->dst, sizeof(L->dst), dst, L->sub[i])) {
+      fxFail("PATH TOO LONG"); ok = false; break;
+    }
+    fxBusyLine(L->sub[i]);
+    ok = fxCopyTree(L->src, L->dst, depth + 1);
+  }
+  free(L);
+  return ok;
+}
+
+// Recursive delete. Each pass re-opens the folder and removes its first entry,
+// so no listing handle is held while recursing and nothing is removed while a
+// directory iterator is live.
+static bool fxDeleteTree(const char *path, int depth) {
+  if (!fxIsDir(path)) {
+    if (!FX_FS.remove(path)) { fxFail("DELETE FAILED"); return false; }
+    return true;
+  }
+  if (depth > FX_MAX_DEPTH + 2) { fxFail("FOLDER TOO DEEP"); return false; }
+  char *buf = (char *)malloc(FX_FS_NAME + FILE_EXPLORER_PATH_LEN);
+  if (!buf) { fxFail("OUT OF MEMORY"); return false; }
+  char *name = buf;
+  char *child = buf + FX_FS_NAME;
+  bool ok = true;
+  for (;;) {
+    File d = FX_FS.open(path);
+    if (!d) { fxFail("CANNOT READ FOLDER"); ok = false; break; }
+    bool found = false, nameOk = true;
+    for (File e = d.openNextFile(); e; e = d.openNextFile()) {
+      nameOk = fxEntryName(e, name, FX_FS_NAME);
+      e.close();
+      if (!nameOk || (strcmp(name, ".") != 0 && strcmp(name, "..") != 0)) { found = true; break; }
+    }
+    d.close();
+    if (!found) break;                            // folder is empty
+    if (!nameOk) { fxFail("NAME TOO LONG"); ok = false; break; }
+    if (!fileExplorerJoin(child, FILE_EXPLORER_PATH_LEN, path, name)) { fxFail("PATH TOO LONG"); ok = false; break; }
+    fxBusyLine(name);
+    if (!fxDeleteTree(child, depth + 1)) { ok = false; break; }
+  }
+  free(buf);
+  if (ok && !FX_FS.rmdir(path)) { fxFail("CANNOT REMOVE FOLDER"); ok = false; }
+  return ok;
+}
+
+static void fxResult(char *out, size_t cap, int ok, int failed, const char *okWord) {
+  if (failed > 0) {
+    if (!fxCardOk()) { sdMarkIoFault("file explorer operation"); strlcpy(out, "SD CARD LOST - REINSERT", cap); }
+    else snprintf(out, cap, "%d FAILED: %s", failed, fxErr[0] ? fxErr : "CHECK CARD");
+  } else snprintf(out, cap, "%s %d", okWord, ok);
+}
+
+// Paste the clipboard into the folder currently shown. Name clashes get a
+// "_1", "_2" ... suffix instead of overwriting. Cut items are renamed in place
+// (instant, same card); copied items are streamed with read-back verification.
+static void fxPaste(char *result, size_t cap) {
+  result[0] = '\0';
+  if (fileClipCount <= 0) { strlcpy(result, "CLIPBOARD EMPTY", cap); return; }
+  fxErr[0] = '\0';
+  const bool wasCut = fileClipCut;
+  if (!wasCut) {
+    fxCopyBufLen = 4096; fxCopyBuf = (uint8_t *)malloc(fxCopyBufLen);
+    if (!fxCopyBuf) { fxCopyBufLen = 512; fxCopyBuf = (uint8_t *)malloc(fxCopyBufLen); }
+    if (!fxCopyBuf) { fxCopyBufLen = 0; strlcpy(result, "OUT OF MEMORY", cap); return; }
+  }
+  fxBusyStart(wasCut ? "MOVING" : "COPYING");
+  int ok = 0, failed = 0, skipped = 0;
+  char src[FILE_EXPLORER_PATH_LEN], dst[FILE_EXPLORER_PATH_LEN];
+  for (int i = 0; i < fileClipCount; ++i) {
+    const char *name = fileClipName(i);
+    fxBusyItem(i + 1, fileClipCount, name);
+    if (!fileExplorerJoin(src, sizeof(src), fileClipDir, name)) { fxFail("PATH TOO LONG"); ++failed; continue; }
+    if (!FX_FS.exists(src)) { fxFail("SOURCE MISSING"); ++failed; continue; }
+    const bool srcIsDir = fxIsDir(src);
+    if (srcIsDir && fxIsInside(fileExplorerPath, src)) { fxFail("CANT PASTE INTO ITSELF"); ++failed; continue; }
+    if (wasCut && !strcmp(fileClipDir, fileExplorerPath)) { ++skipped; continue; }   // already here
+    if (!fxUniquePath(dst, sizeof(dst), fileExplorerPath, name)) { fxFail("PATH TOO LONG"); ++failed; continue; }
+    bool done;
+    if (wasCut) {
+      done = FX_FS.rename(src, dst);
+      if (!done) fxFail("MOVE FAILED");
+    } else if (srcIsDir) {
+      done = fxCopyTree(src, dst, 0);
+      if (!done) {                                // do not leave a half-copied folder behind
+        char why[sizeof(fxErr)]; strlcpy(why, fxErr, sizeof(why));
+        fxDeleteTree(dst, 0);
+        fxFail(why);
+      }
+    } else {
+      done = fxCopyFile(src, dst);
+    }
+    if (done) {
+      ++ok;
+      if (wasCut) fileClipNames[(size_t)i * FILE_EXPLORER_NAME_LEN] = '\0';   // consumed
+    } else ++failed;
+  }
+  if (fxCopyBuf) { free(fxCopyBuf); fxCopyBuf = nullptr; fxCopyBufLen = 0; }
+  if (wasCut) {                                   // drop moved items; keep any that failed / were skipped
+    int k = 0;
+    for (int i = 0; i < fileClipCount; ++i) {
+      if (!fileClipNames[(size_t)i * FILE_EXPLORER_NAME_LEN]) continue;
+      if (k != i) memcpy(fileClipNames + (size_t)k * FILE_EXPLORER_NAME_LEN,
+                         fileClipNames + (size_t)i * FILE_EXPLORER_NAME_LEN, FILE_EXPLORER_NAME_LEN);
+      ++k;
+    }
+    fileClipCount = k;
+    if (k == 0) fileClipClear();
+  }
+  if (!ok && !failed) strlcpy(result, skipped ? "ALREADY IN THIS FOLDER" : "NOTHING PASTED", cap);
+  else fxResult(result, cap, ok, failed, wasCut ? "MOVED" : "PASTED");
+}
+
+static void fxDeleteTargets(int sel, char *result, size_t cap) {
+  fxErr[0] = '\0';
+  fxBusyStart("DELETING");
+  const int total = fxTargetCount(sel);
+  int n = 0, ok = 0, failed = 0;
+  char path[FILE_EXPLORER_PATH_LEN];
+  for (int i = 0; i < fileExplorerCount; ++i) {
+    if (!fxIsTarget(i, sel)) continue;
+    fxBusyItem(++n, total, fileExplorerEntries[i].name);
+    if (!fileExplorerJoin(path, sizeof(path), fileExplorerPath, fileExplorerEntries[i].name)) { fxFail("PATH TOO LONG"); ++failed; }
+    else if (fxDeleteTree(path, 0)) ++ok;
+    else ++failed;
+  }
+  fxResult(result, cap, ok, failed, "DELETED");
+}
+
+// ---- Y action sheet and delete confirmation ---------------------------------------
+enum { FX_ACT_NONE = -1, FX_ACT_COPY = 0, FX_ACT_CUT, FX_ACT_PASTE, FX_ACT_DELETE,
+       FX_ACT_SELECT_ALL, FX_ACT_CLEAR, FX_ACT_COUNT };
+
+static void fxSheetDraw(const char *title, const char *const *labels, const bool *enabled, int cur) {
+  const bool land = LCD_W > LCD_H;
+  const int rowH = land ? 16 : 19, titleH = 16;
+  const int sheetH = 2 + titleH + FX_ACT_COUNT * rowH;
+  const int yTop = LCD_H - 18 - sheetH;
+  lcdFill(0, yTop, LCD_W, 2, uiAccent());
+  lcdTextRow(yTop + 2, titleH, title, 1, uiWhite(), uiPanel(), 6);
+  for (int i = 0; i < FX_ACT_COUNT; ++i) {
+    const int y = yTop + 2 + titleH + i * rowH;
+    const uint16_t fg = !enabled[i] ? col565(78, 88, 104) : (i == cur ? uiWhite() : uiMuted());
+    const uint16_t bg = i == cur ? uiBlue() : ((i & 1) ? uiPanel2() : uiPanel());
+    lcdTextRow(y, rowH, labels[i], 2, fg, bg, 10);
+    if (i == cur) lcdFill(0, y, 3, rowH, uiAccent());
+  }
+  lcdTextRow(LCD_H - 18, 18, "A OK  B OR Y CLOSE", 1, uiMuted(), uiPanel());
+}
+
+// Returns the chosen FX_ACT_* value, or FX_ACT_NONE if closed.
+static int fxActionSheet(int sel) {
+  fxWaitRelease(800);
+  uint8_t prev = padState;
+  uint16_t prevRaw = fxRawButtons();
+  const int targets = fxTargetCount(sel);
+  bool enabled[FX_ACT_COUNT];
+  enabled[FX_ACT_COPY] = enabled[FX_ACT_CUT] = enabled[FX_ACT_DELETE] = targets > 0;
+  enabled[FX_ACT_PASTE] = fileClipCount > 0;
+  enabled[FX_ACT_SELECT_ALL] = fileExplorerCount - (fxIsParent(0) ? 1 : 0) > 0;
+  enabled[FX_ACT_CLEAR] = fileExplorerMarkedCount > 0;
+  int cur = -1;
+  for (int i = 0; i < FX_ACT_COUNT && cur < 0; ++i) if (enabled[i]) cur = i;
+  if (cur < 0) { strlcpy(fileExplorerStatus, "EMPTY FOLDER - NOTHING TO DO", sizeof(fileExplorerStatus)); return FX_ACT_NONE; }
+
+  char title[32], pasteLabel[24];
+  if (fileExplorerMarkedCount > 0)
+    snprintf(title, sizeof(title), "%d MARKED ITEM%s", fileExplorerMarkedCount, fileExplorerMarkedCount == 1 ? "" : "S");
+  else strlcpy(title, targets > 0 ? "HIGHLIGHTED ITEM" : "NO ITEM TO ACT ON", sizeof(title));
+  if (fileClipCount > 0) snprintf(pasteLabel, sizeof(pasteLabel), "PASTE (%d %s)", fileClipCount, fileClipCut ? "CUT" : "COPIED");
+  else strlcpy(pasteLabel, "PASTE", sizeof(pasteLabel));
+  const char *labels[FX_ACT_COUNT] = { "COPY", "CUT", pasteLabel, "DELETE", "SELECT ALL", "CLEAR SELECTION" };
+
+  bool dirty = true;
+  for (;;) {
+    readPad(); bleTick();
+    const uint8_t s = padState, pressed = s & ~prev; prev = s;
+    const uint16_t raw = fxRawButtons(), rawPressed = raw & ~prevRaw; prevRaw = raw;
+    if ((pressed & 0x02) || (rawPressed & XB_Y)) return FX_ACT_NONE;
+    int dir = 0;
+    if (pressed & 0x50) dir = -1;
+    else if (pressed & 0xA0) dir = 1;
+    if (dir) {
+      for (int n = 0; n < FX_ACT_COUNT; ++n) {
+        cur = (cur + dir + FX_ACT_COUNT) % FX_ACT_COUNT;
+        if (enabled[cur]) break;
+      }
+      dirty = true;
+    }
+    if (menuConfirmPressed(pressed, 8)) return cur;
+    if (dirty) { fxSheetDraw(title, labels, enabled, cur); dirty = false; }
+    delay(16);
+  }
+}
+
+// Deleting is permanent, so ask first. The cursor starts on NO.
+static bool fxConfirmDelete(int sel) {
+  fxWaitRelease(800);
+  uint8_t prev = padState;
+  uint16_t prevRaw = fxRawButtons();
+  const int n = fxTargetCount(sel);
+  bool anyDir = false;
+  const char *firstName = "";
+  for (int i = 0; i < fileExplorerCount; ++i) {
+    if (!fxIsTarget(i, sel)) continue;
+    if (!firstName[0]) firstName = fileExplorerEntries[i].name;
+    if (fileExplorerEntries[i].isDir) anyDir = true;
+  }
+  char what[48];
+  if (n == 1) strlcpy(what, firstName, sizeof(what));
+  else snprintf(what, sizeof(what), "%d ITEMS", n);
+  menuFitLabel(what, sizeof(what), LCD_W, 1, 4);
+  int confirm = 0;
+  bool dirty = true;
+  for (;;) {
+    readPad(); bleTick();
+    const uint8_t s = padState, pressed = s & ~prev; prev = s;
+    const uint16_t raw = fxRawButtons(), rawPressed = raw & ~prevRaw; prevRaw = raw;
+    if ((pressed & 0x02) || (rawPressed & XB_Y)) return false;
+    if (pressed & 0x50) { confirm = 0; dirty = true; }
+    if (pressed & 0xA0) { confirm = 1; dirty = true; }
+    if (dirty) {
+      lcdFill(0, 0, LCD_W, LCD_H, uiBg());
+      lcdTextRow(20, 24, "DELETE ITEMS", 2, uiWhite(), uiPanel());
+      lcdTextRow(50, 14, what, 1, uiMuted(), uiBg(), 4);
+      lcdTextRow(65, 12, "THIS CANNOT BE UNDONE", 1, uiWarn(), uiBg(), 4);
+      if (anyDir) lcdTextRow(77, 12, "FOLDERS LOSE ALL CONTENTS", 1, uiWarn(), uiBg(), 4);
+      lcdTextRow(92, 24, "NO", 2, confirm == 0 ? uiWhite() : uiMuted(), confirm == 0 ? uiBlue() : uiPanel());
+      lcdTextRow(122, 24, "YES, DELETE", 2, confirm == 1 ? uiWhite() : uiMuted(), confirm == 1 ? col565(110, 0, 0) : uiPanel());
+      lcdTextRow(LCD_H - 18, 18, "A CONFIRM   B CANCEL", 1, uiMuted(), uiPanel());
+      dirty = false;
+    }
+    if (menuConfirmPressed(pressed, 9)) return confirm == 1;
+    delay(16);
+  }
+}
+
 static void fileExplorerMenu() {
   if (!sdMount()) { showMessage("NO SD CARD", "CHECK CARD", col565(110,0,0)); delay(900); return; }
   strlcpy(fileExplorerPath, "/", sizeof(fileExplorerPath));
   fileExplorerStatus[0] = '\0';
+  fileClipClear();                                   // every visit starts with an empty clipboard
   int sel = 0, top = 0;
-  uint32_t t0 = millis(); do { readPad(); delay(10); } while (padState && millis()-t0 < 1000);
-  uint8_t prev = padState; uint32_t nextRep = 0;
+  fxWaitRelease(1000);
+  uint8_t prev = padState;
+  uint16_t prevRaw = fxRawButtons();
+  uint32_t nextRep = 0;
   fileExplorerScan();
   bool dirty = true;
   for (;;) {
     readPad(); bleTick();
     const uint8_t s = padState, pressed = s & ~prev; prev = s;
+    const uint16_t raw = fxRawButtons(), rawPressed = raw & ~prevRaw; prevRaw = raw;
     const uint32_t now = millis();
     if (pressed & 0x02) {
-      if (strcmp(fileExplorerPath, "/") == 0) return;
+      if (strcmp(fileExplorerPath, "/") == 0) { fileClipClear(); return; }
       char *slash = strrchr(fileExplorerPath, '/');
       if (slash && slash == fileExplorerPath) fileExplorerPath[1] = '\0';
       else if (slash) *slash = '\0';
@@ -926,10 +1417,60 @@ static void fileExplorerMenu() {
           // The info screen consumes its own B press; sync edge detection so
           // that press cannot also navigate/back out of the file explorer.
           prev = padState;
+          prevRaw = fxRawButtons();
         }
         else { strlcpy(fileExplorerStatus, "PATH TOO LONG", sizeof(fileExplorerStatus)); dirty = true; }
       }
     }
+
+    // X: mark / unmark the highlighted item. Mark as many as you like.
+    if ((rawPressed & XB_X) && fileExplorerCount > 0) {
+      fileExplorerStatus[0] = '\0';
+      fxToggleMark(sel);
+      dirty = true;
+    }
+
+    // Y: action sheet (copy / cut / paste / delete / select all / clear).
+    if (rawPressed & XB_Y) {
+      fileExplorerStatus[0] = '\0';
+      const int act = fxActionSheet(sel);
+      char result[48]; result[0] = '\0';
+      bool rescan = false;
+      switch (act) {
+        case FX_ACT_COPY:
+        case FX_ACT_CUT: {
+          const bool cut = act == FX_ACT_CUT;
+          const int n = fxTargetCount(sel);
+          if (fxClipStore(cut, sel)) {
+            snprintf(result, sizeof(result), "%d %s", n, cut ? "CUT - PASTE IN TARGET FOLDER" : "COPIED");
+            fxClearMarks();
+          } else strlcpy(result, "OUT OF MEMORY", sizeof(result));
+        } break;
+        case FX_ACT_PASTE:
+          fxPaste(result, sizeof(result));
+          rescan = true;
+          break;
+        case FX_ACT_DELETE:
+          if (fxConfirmDelete(sel)) { fxDeleteTargets(sel, result, sizeof(result)); rescan = true; }
+          break;
+        case FX_ACT_SELECT_ALL:
+          fxSelectAll();
+          snprintf(result, sizeof(result), "%d MARKED", fileExplorerMarkedCount);
+          break;
+        case FX_ACT_CLEAR:
+          fxClearMarks();
+          break;
+        default: break;
+      }
+      if (rescan) {
+        fileExplorerScan();                          // also clears the marks
+        sel = constrain(sel, 0, max(0, fileExplorerCount - 1));
+      }
+      if (result[0] && !fileExplorerStatus[0]) strlcpy(fileExplorerStatus, result, sizeof(fileExplorerStatus));
+      fxWaitRelease(400);
+      prev = padState; prevRaw = fxRawButtons(); nextRep = 0; dirty = true;
+    }
+
     int step = 0;
     if (pressed & 0x10) { step=-1; nextRep=now+350; }
     else if (pressed & 0x20) { step=1; nextRep=now+350; }
@@ -938,10 +1479,11 @@ static void fileExplorerMenu() {
     if (step && fileExplorerCount) {
       const int oldSel = sel;
       sel = constrain(sel+step, 0, fileExplorerCount-1);
-      if (sel != oldSel) dirty = true;
+      if (sel != oldSel) { dirty = true; fileExplorerStatus[0] = '\0'; }
     }
     const int visible = max(1, (LCD_H-(LCD_W>LCD_H?39:48)-19)/(LCD_W>LCD_H?16:19));
     const int oldTop = top;
+    if (top > max(0, fileExplorerCount - visible)) top = max(0, fileExplorerCount - visible);
     if (sel < top) top=sel;
     if (sel >= top+visible) top=sel-visible+1;
     if (top != oldTop) dirty = true;
