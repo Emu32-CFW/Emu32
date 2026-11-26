@@ -503,7 +503,8 @@ static void splash() {
   const int w2 = strlen(sub2) * 4 * ss - ss;
   const int ly = 96;                                          // logo top
   lcdFill(0, 0, LCD_W, LCD_H, 0);
-  lcdBlit((LCD_W - LOGO_W) / 2, ly, LOGO_W, LOGO_H, logoImg);
+  { uint16_t logoRow[LOGO_W]; logoDrawReset();
+    for (int r = 0; r < LOGO_H; r++) { logoNextRow(logoRow); lcdBlit((LCD_W - LOGO_W) / 2, ly + r, LOGO_W, 1, logoRow); } }
   lcdTextRow(ly + LOGO_H + 24, 5 * ss + 4, sub1, ss, col565(150, 150, 150), 0, (LCD_W - w1) / 2);
   lcdTextRow(ly + LOGO_H + 44, 5 * ss + 4, sub2, ss, col565(150, 150, 150), 0, (LCD_W - w2) / 2);
   Serial.println("Emu32");
